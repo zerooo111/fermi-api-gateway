@@ -11,16 +11,38 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
+
 	"github.com/fermilabs/fermi-api-gateway/internal/config"
 	"github.com/fermilabs/fermi-api-gateway/internal/health"
+	"github.com/fermilabs/fermi-api-gateway/internal/middleware"
 )
 
 func main() {
 	// Load configuration from environment
 	cfg := config.Load()
 
+	// Initialize logger
+	var logger *zap.Logger
+	var err error
+	if cfg.Server.Env == "production" {
+		logger, err = zap.NewProduction()
+	} else {
+		logger, err = zap.NewDevelopment()
+	}
+	if err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+	defer logger.Sync()
+
 	// Create router
 	r := chi.NewRouter()
+
+	// Apply global middleware (order matters!)
+	r.Use(middleware.RequestID)           // Generate request IDs first
+	r.Use(middleware.Recovery)            // Recover from panics
+	r.Use(middleware.Logging(logger))     // Log all requests
+	r.Use(middleware.CORS(cfg.CORS.AllowedOrigins)) // Handle CORS
 
 	// Health check endpoints
 	r.Get("/health", health.Handler())
