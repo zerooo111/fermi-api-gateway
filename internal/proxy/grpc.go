@@ -367,6 +367,8 @@ func (p *GRPCProxy) HandleGetRecentTransactions() http.HandlerFunc {
 				})
 				return
 			}
+			// Log the database error for debugging
+			fmt.Printf("[DEBUG] Database query failed: %v\n", err)
 		}
 
 		// Return empty result - database not available or not configured

@@ -38,9 +38,9 @@ func NewRepository(db *DB) *Repository {
 func (r *Repository) GetTransaction(ctx context.Context, txHash string) (*Transaction, error) {
 	query := `
 		SELECT
-			tx_hash, tx_id, payload, signature, public_key, nonce,
-			client_timestamp, sequence_number, ingestion_timestamp,
-			tick_number, created_at, metadata
+			tick_number, sequence_number, tx_hash, tx_id, nonce,
+			payload, timestamp_us, public_key, signature, ingestion_timestamp,
+			processed_at
 		FROM transactions
 		WHERE tx_hash = $1
 		LIMIT 1
@@ -48,18 +48,17 @@ func (r *Repository) GetTransaction(ctx context.Context, txHash string) (*Transa
 
 	var tx Transaction
 	err := r.db.QueryRowContext(ctx, query, txHash).Scan(
+		&tx.TickNumber,
+		&tx.SequenceNumber,
 		&tx.TxHash,
 		&tx.TxID,
-		&tx.Payload,
-		&tx.Signature,
-		&tx.PublicKey,
 		&tx.Nonce,
+		&tx.Payload,
 		&tx.ClientTimestamp,
-		&tx.SequenceNumber,
+		&tx.PublicKey,
+		&tx.Signature,
 		&tx.IngestionTimestamp,
-		&tx.TickNumber,
 		&tx.CreatedAt,
-		&tx.Metadata,
 	)
 
 	if err == sql.ErrNoRows {
@@ -76,11 +75,11 @@ func (r *Repository) GetTransaction(ctx context.Context, txHash string) (*Transa
 func (r *Repository) GetRecentTransactions(ctx context.Context, limit int) ([]Transaction, error) {
 	query := `
 		SELECT
-			tx_hash, tx_id, payload, signature, public_key, nonce,
-			client_timestamp, sequence_number, ingestion_timestamp,
-			tick_number, created_at, metadata
+			tick_number, sequence_number, tx_hash, tx_id, nonce,
+			payload, timestamp_us, public_key, signature, ingestion_timestamp,
+			processed_at, payload_size, version
 		FROM transactions
-		ORDER BY created_at DESC
+		ORDER BY processed_at DESC
 		LIMIT $1
 	`
 
@@ -93,19 +92,23 @@ func (r *Repository) GetRecentTransactions(ctx context.Context, limit int) ([]Tr
 	var transactions []Transaction
 	for rows.Next() {
 		var tx Transaction
+		var payloadSize sql.NullInt64
+		var version sql.NullInt64
+
 		err := rows.Scan(
+			&tx.TickNumber,
+			&tx.SequenceNumber,
 			&tx.TxHash,
 			&tx.TxID,
-			&tx.Payload,
-			&tx.Signature,
-			&tx.PublicKey,
 			&tx.Nonce,
+			&tx.Payload,
 			&tx.ClientTimestamp,
-			&tx.SequenceNumber,
+			&tx.PublicKey,
+			&tx.Signature,
 			&tx.IngestionTimestamp,
-			&tx.TickNumber,
 			&tx.CreatedAt,
-			&tx.Metadata,
+			&payloadSize,
+			&version,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan failed: %w", err)
