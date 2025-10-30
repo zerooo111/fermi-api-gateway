@@ -323,3 +323,37 @@ func (p *GRPCProxy) HandleStreamTicks() http.HandlerFunc {
 		}
 	}
 }
+
+// HandleGetRecentTransactions handles GET /api/v1/continuum/tx/recent?limit=10
+// Returns recent transactions (placeholder implementation)
+func (p *GRPCProxy) HandleGetRecentTransactions() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Get limit parameter (optional)
+		limitStr := r.URL.Query().Get("limit")
+		limit := 10 // default
+		if limitStr != "" {
+			parsedLimit, err := strconv.Atoi(limitStr)
+			if err != nil || parsedLimit < 1 || parsedLimit > 100 {
+				http.Error(w, `{"error":"invalid limit (must be 1-100)"}`, http.StatusBadRequest)
+				return
+			}
+			limit = parsedLimit
+		}
+
+		// TODO: Implement actual transaction fetching from backend
+		// For now, return empty array
+		response := map[string]interface{}{
+			"transactions": []interface{}{},
+			"total":        0,
+			"limit":        limit,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}
+}

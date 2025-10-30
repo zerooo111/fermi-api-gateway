@@ -101,6 +101,7 @@ func main() {
 			r.Get("/transaction", continuumGrpcProxy.HandleGetTransaction())
 			r.Get("/tick", continuumGrpcProxy.HandleGetTick())
 			r.Get("/chain-state", continuumGrpcProxy.HandleGetChainState())
+			r.Get("/tx/recent", continuumGrpcProxy.HandleGetRecentTransactions())
 
 			// REST-only endpoints - proxy to REST backend (catch-all for any unmatched routes)
 			r.Handle("/*", continuumRestProxy.Handler())
