@@ -65,8 +65,12 @@ func (p *HTTPProxy) proxyRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Preserve the original path and query parameters
-	targetURL.Path = r.URL.Path
+	// Concatenate the base path with the request path
+	// If target is "http://backend.com/api/v1", and request is "/health"
+	// Result should be "http://backend.com/api/v1/health"
+	basePath := strings.TrimSuffix(targetURL.Path, "/")
+	requestPath := r.URL.Path
+	targetURL.Path = basePath + requestPath
 	targetURL.RawQuery = r.URL.RawQuery
 
 	// Create new request to backend
