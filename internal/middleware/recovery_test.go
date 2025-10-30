@@ -1,8 +1,11 @@
 package middleware
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -76,9 +79,29 @@ func TestRecovery(t *testing.T) {
 					t.Error("Expected error response body, got empty")
 				}
 
-				// Check for error message in response
-				if len(body) < 10 {
-					t.Errorf("Error response seems too short: %s", body)
+				// Parse JSON response and validate structure
+				var response map[string]interface{}
+				if err := json.Unmarshal([]byte(body), &response); err != nil {
+					t.Fatalf("Failed to parse JSON response: %v", err)
+				}
+
+				// Verify required fields exist
+				if _, ok := response["error"]; !ok {
+					t.Error("Expected 'error' field in response")
+				}
+				if _, ok := response["message"]; !ok {
+					t.Error("Expected 'message' field in response")
+				}
+
+				// Verify error message is generic (not the actual panic message)
+				errorMsg, _ := response["error"].(string)
+				if errorMsg != "Internal Server Error" {
+					t.Errorf("Expected error to be 'Internal Server Error', got '%s'", errorMsg)
+				}
+
+				msg, _ := response["message"].(string)
+				if msg != "An unexpected error occurred" {
+					t.Errorf("Expected message to be 'An unexpected error occurred', got '%s'", msg)
 				}
 			}
 		})
@@ -100,12 +123,218 @@ func TestRecovery_PreservesRequestID(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	// Verify request ID is in response even after panic
-	if rr.Header().Get("X-Request-ID") == "" {
+	requestID := rr.Header().Get("X-Request-ID")
+	if requestID == "" {
 		t.Error("Expected X-Request-ID to be preserved in error response")
 	}
 
 	// Verify status is 500
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status 500, got %d", rr.Code)
+	}
+
+	// Parse JSON response
+	var response map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to parse JSON response: %v", err)
+	}
+
+	// Verify request_id is in JSON body
+	if respID, ok := response["request_id"].(string); !ok || respID != requestID {
+		t.Errorf("Expected request_id in body to match header: %s", requestID)
+	}
+}
+
+// TestRecovery_NeverExposePanicMessage is a CRITICAL SECURITY TEST
+// Verifies that panic messages containing sensitive data are NEVER exposed to clients
+func TestRecovery_NeverExposePanicMessage(t *testing.T) {
+	sensitiveData := []string{
+		"PASSWORD: secret123",
+		"API_KEY: sk-1234567890abcdef",
+		"SECRET_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+		"database connection failed: user=admin password=AdminPass123 host=prod-db",
+		"AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+	}
+
+	for _, sensitiveMsg := range sensitiveData {
+		testName := sensitiveMsg
+		if len(testName) > 20 {
+			testName = testName[:20]
+		}
+		t.Run("panic with: "+testName, func(t *testing.T) {
+			handler := Recovery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				panic(sensitiveMsg)
+			}))
+
+			req := httptest.NewRequest("GET", "/test", nil)
+			rr := httptest.NewRecorder()
+
+			handler.ServeHTTP(rr, req)
+
+			// Verify 500 status
+			if rr.Code != http.StatusInternalServerError {
+				t.Errorf("Expected status 500, got %d", rr.Code)
+			}
+
+			body := rr.Body.String()
+
+			// Parse JSON
+			var response map[string]interface{}
+			if err := json.Unmarshal([]byte(body), &response); err != nil {
+				t.Fatalf("Failed to parse JSON response: %v", err)
+			}
+
+			// CRITICAL: Verify sensitive data is NOT in response
+			for _, sensitive := range []string{"PASSWORD", "secret123", "API_KEY", "sk-", "SECRET_TOKEN", "password=", "AWS_SECRET"} {
+				if strings.Contains(body, sensitive) {
+					t.Errorf("SECURITY ISSUE: Response contains sensitive data '%s': %s", sensitive, body)
+				}
+			}
+
+			// Verify only generic message is returned
+			errorMsg, _ := response["error"].(string)
+			if errorMsg != "Internal Server Error" {
+				t.Errorf("Expected generic error message, got '%s'", errorMsg)
+			}
+
+			msg, _ := response["message"].(string)
+			if msg != "An unexpected error occurred" {
+				t.Errorf("Expected generic message, got '%s'", msg)
+			}
+		})
+	}
+}
+
+// TestRecovery_ConcurrentPanics tests that concurrent panics are handled safely
+func TestRecovery_ConcurrentPanics(t *testing.T) {
+	handler := Recovery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("concurrent panic")
+	}))
+
+	var wg sync.WaitGroup
+	concurrency := 50
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			req := httptest.NewRequest("GET", "/test", nil)
+			rr := httptest.NewRecorder()
+
+			handler.ServeHTTP(rr, req)
+
+			// Verify each request gets proper error response
+			if rr.Code != http.StatusInternalServerError {
+				t.Errorf("Request %d: Expected status 500, got %d", id, rr.Code)
+			}
+
+			var response map[string]interface{}
+			if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+				t.Errorf("Request %d: Failed to parse JSON: %v", id, err)
+				return
+			}
+
+			if response["error"] != "Internal Server Error" {
+				t.Errorf("Request %d: Expected generic error message", id)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// TestRecovery_PanicAfterWriteHeader tests panic after headers are written
+func TestRecovery_PanicAfterWriteHeader(t *testing.T) {
+	handler := Recovery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("partial response"))
+		panic("panic after write")
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	// Status should be 200 (already written before panic)
+	// But response should still include error handling attempt
+	if rr.Code != http.StatusOK {
+		t.Logf("Note: Status is %d (headers were already written)", rr.Code)
+	}
+
+	// Verify the handler didn't crash the test
+	body := rr.Body.String()
+	if body == "" {
+		t.Error("Expected some response body")
+	}
+}
+
+// TestRecovery_NilPanic tests recovery from nil pointer panic
+func TestRecovery_NilPanic(t *testing.T) {
+	handler := Recovery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p *int
+		_ = *p // nil pointer dereference
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("Expected status 500, got %d", rr.Code)
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to parse JSON response: %v", err)
+	}
+
+	// Verify generic error message (not "runtime error: invalid memory address")
+	if response["error"] != "Internal Server Error" {
+		t.Errorf("Expected generic error, got %v", response["error"])
+	}
+}
+
+// TestRecovery_JSONStructure validates exact JSON response structure
+func TestRecovery_JSONStructure(t *testing.T) {
+	handler := Recovery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("test")
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Request-ID", "test-123")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to parse JSON response: %v", err)
+	}
+
+	// Verify exact structure
+	expectedFields := []string{"error", "message", "request_id"}
+	for _, field := range expectedFields {
+		if _, ok := response[field]; !ok {
+			t.Errorf("Expected field '%s' in response", field)
+		}
+	}
+
+	// Verify no extra fields
+	if len(response) != len(expectedFields) {
+		t.Errorf("Expected exactly %d fields, got %d: %v", len(expectedFields), len(response), response)
+	}
+
+	// Verify field types
+	if _, ok := response["error"].(string); !ok {
+		t.Error("Expected 'error' to be a string")
+	}
+	if _, ok := response["message"].(string); !ok {
+		t.Error("Expected 'message' to be a string")
+	}
+	if _, ok := response["request_id"].(string); !ok {
+		t.Error("Expected 'request_id' to be a string")
 	}
 }
