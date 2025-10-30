@@ -19,6 +19,7 @@ import (
 	"github.com/fermilabs/fermi-api-gateway/internal/health"
 	"github.com/fermilabs/fermi-api-gateway/internal/metrics"
 	"github.com/fermilabs/fermi-api-gateway/internal/middleware"
+	"github.com/fermilabs/fermi-api-gateway/internal/proxy"
 	"github.com/fermilabs/fermi-api-gateway/internal/ratelimit"
 )
 
@@ -44,6 +45,16 @@ func main() {
 	registry := prometheus.NewRegistry()
 	m.MustRegister(registry)
 
+	// Initialize proxies
+	rollupProxy := proxy.NewHTTPProxy(cfg.Backend.RollupURL, 15*time.Second)
+	continuumRestProxy := proxy.NewHTTPProxy(cfg.Backend.ContinuumRestURL, 15*time.Second)
+
+	continuumGrpcProxy, err := proxy.NewGRPCProxy(cfg.Backend.ContinuumGrpcURL)
+	if err != nil {
+		log.Fatalf("Failed to initialize Continuum gRPC proxy: %v", err)
+	}
+	defer continuumGrpcProxy.Close()
+
 	// Create router
 	r := chi.NewRouter()
 
@@ -67,30 +78,30 @@ func main() {
 		rollupLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.RollupRPM)/60, cfg.RateLimit.RollupRPM)
 		r.Route("/rollup", func(r chi.Router) {
 			r.Use(ratelimit.Middleware(rollupLimiter))
-			r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusNotImplemented)
-				w.Write([]byte(`{"message":"Rollup proxy not yet implemented"}`))
-			})
+			// Proxy all requests to Rollup backend (strip /api/rollup prefix)
+			r.Handle("/*", http.StripPrefix("/api/rollup", rollupProxy.Handler()))
 		})
 
 		// Continuum gRPC - 500 req/min = ~8.33 req/sec
 		grpcLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.ContinuumGrpcRPM)/60, cfg.RateLimit.ContinuumGrpcRPM)
 		r.Route("/continuum/grpc", func(r chi.Router) {
 			r.Use(ratelimit.Middleware(grpcLimiter))
-			r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusNotImplemented)
-				w.Write([]byte(`{"message":"Continuum gRPC proxy not yet implemented"}`))
-			})
+			// gRPC endpoints with HTTP-to-gRPC conversion
+			r.Post("/submit-transaction", continuumGrpcProxy.HandleSubmitTransaction())
+			r.Post("/submit-batch", continuumGrpcProxy.HandleSubmitBatch())
+			r.Get("/status", continuumGrpcProxy.HandleGetStatus())
+			r.Get("/transaction", continuumGrpcProxy.HandleGetTransaction())
+			r.Get("/tick", continuumGrpcProxy.HandleGetTick())
+			r.Get("/chain-state", continuumGrpcProxy.HandleGetChainState())
+			r.Get("/stream-ticks", continuumGrpcProxy.HandleStreamTicks())
 		})
 
 		// Continuum REST - 2000 req/min = ~33.33 req/sec
 		restLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.ContinuumRestRPM)/60, cfg.RateLimit.ContinuumRestRPM)
 		r.Route("/continuum/rest", func(r chi.Router) {
 			r.Use(ratelimit.Middleware(restLimiter))
-			r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusNotImplemented)
-				w.Write([]byte(`{"message":"Continuum REST proxy not yet implemented"}`))
-			})
+			// Proxy all requests to Continuum REST backend (strip /api/continuum/rest prefix)
+			r.Handle("/*", http.StripPrefix("/api/continuum/rest", continuumRestProxy.Handler()))
 		})
 	})
 
