@@ -16,6 +16,7 @@ import (
 	"github.com/fermilabs/fermi-api-gateway/internal/config"
 	"github.com/fermilabs/fermi-api-gateway/internal/health"
 	"github.com/fermilabs/fermi-api-gateway/internal/middleware"
+	"github.com/fermilabs/fermi-api-gateway/internal/ratelimit"
 )
 
 func main() {
@@ -44,9 +45,42 @@ func main() {
 	r.Use(middleware.Logging(logger))     // Log all requests
 	r.Use(middleware.CORS(cfg.CORS.AllowedOrigins)) // Handle CORS
 
-	// Health check endpoints
+	// Health check endpoints (no rate limiting)
 	r.Get("/health", health.Handler())
 	r.Get("/ready", health.ReadyHandler())
+
+	// API routes with rate limiting
+	r.Route("/api", func(r chi.Router) {
+		// Rollup API - 1000 req/min = ~16.67 req/sec
+		rollupLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.RollupRPM)/60, cfg.RateLimit.RollupRPM)
+		r.Route("/rollup", func(r chi.Router) {
+			r.Use(ratelimit.Middleware(rollupLimiter))
+			r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotImplemented)
+				w.Write([]byte(`{"message":"Rollup proxy not yet implemented"}`))
+			})
+		})
+
+		// Continuum gRPC - 500 req/min = ~8.33 req/sec
+		grpcLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.ContinuumGrpcRPM)/60, cfg.RateLimit.ContinuumGrpcRPM)
+		r.Route("/continuum/grpc", func(r chi.Router) {
+			r.Use(ratelimit.Middleware(grpcLimiter))
+			r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotImplemented)
+				w.Write([]byte(`{"message":"Continuum gRPC proxy not yet implemented"}`))
+			})
+		})
+
+		// Continuum REST - 2000 req/min = ~33.33 req/sec
+		restLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.ContinuumRestRPM)/60, cfg.RateLimit.ContinuumRestRPM)
+		r.Route("/continuum/rest", func(r chi.Router) {
+			r.Use(ratelimit.Middleware(restLimiter))
+			r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotImplemented)
+				w.Write([]byte(`{"message":"Continuum REST proxy not yet implemented"}`))
+			})
+		})
+	})
 
 	// Basic info endpoint
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
