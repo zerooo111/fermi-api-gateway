@@ -64,6 +64,7 @@ sudo bash scripts/setup.sh
 ```
 
 **What this script does:**
+
 - Updates system packages
 - Installs Go 1.24.5
 - Installs protobuf compiler and Go plugins
@@ -121,6 +122,7 @@ RATE_LIMIT_CONTINUUM_REST=2000
 ```
 
 **Important Notes:**
+
 - For `CONTINUUM_GRPC_URL`: Use `host:port` format (no protocol)
 - For `CONTINUUM_REST_URL`: Include full URL with base path
 - For `ALLOWED_ORIGINS`: Use comma-separated list, no spaces
@@ -140,6 +142,7 @@ sudo bash scripts/deploy.sh
 ```
 
 **What this script does:**
+
 1. Pulls latest code from git (if repository)
 2. Installs/updates Go dependencies
 3. Regenerates protobuf files if needed
@@ -166,6 +169,7 @@ curl http://localhost:8080/health
 ```
 
 Expected response:
+
 ```json
 {
   "status": "healthy",
@@ -200,10 +204,12 @@ sudo bash scripts/setup-ssl.sh api.yourdomain.com admin@yourdomain.com
 ```
 
 **Arguments:**
+
 - First argument: Your domain name (required)
 - Second argument: Your email for Let's Encrypt notifications (optional but recommended)
 
 **What this script does:**
+
 1. Creates certbot webroot directory
 2. Installs Nginx configuration
 3. Sets up temporary HTTP configuration
@@ -263,10 +269,10 @@ If you have a Prometheus server, add this target to your `prometheus.yml`:
 
 ```yaml
 scrape_configs:
-  - job_name: 'fermi-gateway'
+  - job_name: "fermi-gateway"
     static_configs:
-      - targets: ['your-ec2-private-ip:8080']
-    metrics_path: '/metrics'
+      - targets: ["your-ec2-private-ip:8080"]
+    metrics_path: "/metrics"
 ```
 
 ---
@@ -284,6 +290,7 @@ sudo bash scripts/deploy.sh
 ```
 
 The deploy script will automatically:
+
 - Pull latest code
 - Run tests
 - Build new binary
@@ -305,6 +312,7 @@ sudo journalctl -u fermi-gateway -n 50
 ### Updating Environment Variables
 
 1. Edit `.env` file:
+
    ```bash
    sudo nano /opt/fermi-api-gateway/.env
    ```
@@ -342,6 +350,38 @@ sudo journalctl --rotate
 sudo journalctl --vacuum-time=7d
 ```
 
+#### Configure automatic rotation limits (systemd-journald)
+
+Systemd's journald handles rotation automatically. Set sensible caps to prevent unbounded growth:
+
+```bash
+# Open journald config
+sudo nano /etc/systemd/journald.conf
+```
+
+Uncomment and adjust these options as needed (examples shown):
+
+```
+SystemMaxUse=1G          # Max total size on disk
+SystemMaxFileSize=200M   # Max size per journal file
+SystemMaxFiles=10        # Max number of files retained
+# Optionally enforce time/size vacuums in addition to the above caps:
+# RuntimeMaxUse=500M
+```
+
+Apply changes:
+
+```bash
+sudo systemctl restart systemd-journald
+```
+
+You can also vacuum on demand by size or time:
+
+```bash
+sudo journalctl --vacuum-size=500M   # keep latest 500MB
+sudo journalctl --vacuum-time=14d    # keep last 14 days
+```
+
 ---
 
 ## Troubleshooting
@@ -349,11 +389,13 @@ sudo journalctl --vacuum-time=7d
 ### Service Won't Start
 
 **Check logs for errors:**
+
 ```bash
 sudo journalctl -u fermi-gateway -n 100 --no-pager
 ```
 
 **Common issues:**
+
 - Missing `.env` file → Run `sudo bash scripts/deploy.sh` again
 - Port 8080 already in use → Check with `sudo lsof -i :8080`
 - Backend services unreachable → Verify URLs in `.env`
@@ -361,11 +403,13 @@ sudo journalctl -u fermi-gateway -n 100 --no-pager
 ### SSL Certificate Issues
 
 **Certificate not obtained:**
+
 - Verify DNS records point to correct IP
 - Check firewall allows port 80
 - Verify domain is accessible: `curl http://yourdomain.com`
 
 **Certificate expired:**
+
 ```bash
 sudo certbot renew --force-renewal
 sudo systemctl reload nginx
@@ -374,17 +418,20 @@ sudo systemctl reload nginx
 ### High CPU/Memory Usage
 
 **Check resource usage:**
+
 ```bash
 top
 htop  # if installed
 ```
 
 **Check connection counts:**
+
 ```bash
 netstat -an | grep :8080 | wc -l
 ```
 
 **Adjust rate limits in `.env` if needed, then restart:**
+
 ```bash
 sudo systemctl restart fermi-gateway
 ```
@@ -392,16 +439,19 @@ sudo systemctl restart fermi-gateway
 ### Nginx Issues
 
 **Test configuration:**
+
 ```bash
 sudo nginx -t
 ```
 
 **View error logs:**
+
 ```bash
 sudo tail -f /var/log/nginx/fermi-gateway-error.log
 ```
 
 **Restart Nginx:**
+
 ```bash
 sudo systemctl restart nginx
 ```
@@ -409,6 +459,7 @@ sudo systemctl restart nginx
 ### Backend Connection Issues
 
 **Test backend connectivity from server:**
+
 ```bash
 # Test Continuum REST
 curl http://your-continuum-host:8080/api/v1/health
@@ -418,6 +469,7 @@ grpcurl -plaintext your-continuum-host:9090 list
 ```
 
 **Check gateway logs for backend errors:**
+
 ```bash
 sudo journalctl -u fermi-gateway | grep -i error
 ```
@@ -485,6 +537,7 @@ curl https://yourdomain.com/api/continuum/rest/health
 ## Security Best Practices
 
 1. **Keep system updated:**
+
    ```bash
    sudo apt update && sudo apt upgrade -y
    ```
@@ -508,6 +561,7 @@ curl https://yourdomain.com/api/continuum/rest/health
 ## Support
 
 For issues, questions, or contributions:
+
 - GitHub Issues: https://github.com/fermilabs/fermi-api-gateway/issues
 - Documentation: https://github.com/fermilabs/fermi-api-gateway/docs
 
