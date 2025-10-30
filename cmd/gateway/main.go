@@ -11,10 +11,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
 	"github.com/fermilabs/fermi-api-gateway/internal/config"
 	"github.com/fermilabs/fermi-api-gateway/internal/health"
+	"github.com/fermilabs/fermi-api-gateway/internal/metrics"
 	"github.com/fermilabs/fermi-api-gateway/internal/middleware"
 	"github.com/fermilabs/fermi-api-gateway/internal/ratelimit"
 )
@@ -36,6 +39,11 @@ func main() {
 	}
 	defer logger.Sync()
 
+	// Initialize metrics
+	m := metrics.NewMetrics()
+	registry := prometheus.NewRegistry()
+	m.MustRegister(registry)
+
 	// Create router
 	r := chi.NewRouter()
 
@@ -43,7 +51,11 @@ func main() {
 	r.Use(middleware.RequestID)           // Generate request IDs first
 	r.Use(middleware.Recovery)            // Recover from panics
 	r.Use(middleware.Logging(logger))     // Log all requests
+	r.Use(middleware.Metrics(m))          // Record metrics
 	r.Use(middleware.CORS(cfg.CORS.AllowedOrigins)) // Handle CORS
+
+	// Metrics endpoint (no auth for now)
+	r.Get("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP)
 
 	// Health check endpoints (no rate limiting)
 	r.Get("/health", health.Handler())
