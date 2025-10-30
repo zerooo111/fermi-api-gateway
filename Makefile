@@ -16,8 +16,12 @@ build: ## Build the gateway binary
 run: build ## Build and run the gateway
 	./bin/gateway
 
-dev: ## Run in development mode (with go run)
-	go run ./cmd/gateway/main.go
+dev: ## Run in development mode (with go run). Usage: make dev PORT=3000
+	@if [ -n "$(PORT)" ]; then \
+		PORT=$(PORT) go run ./cmd/gateway/main.go; \
+	else \
+		go run ./cmd/gateway/main.go; \
+	fi
 
 clean: ## Clean build artifacts
 	rm -rf bin/
