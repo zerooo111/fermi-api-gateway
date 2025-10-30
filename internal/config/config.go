@@ -10,6 +10,7 @@ type Config struct {
 	Server    ServerConfig
 	CORS      CORSConfig
 	Backend   BackendConfig
+	Database  DatabaseConfig
 	RateLimit RateLimitConfig
 }
 
@@ -29,6 +30,16 @@ type BackendConfig struct {
 	RollupURL         string
 	ContinuumGrpcURL  string
 	ContinuumRestURL  string
+}
+
+// DatabaseConfig holds database connection configuration
+type DatabaseConfig struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+	DBName   string
+	SSLMode  string
 }
 
 // RateLimitConfig holds rate limiting configuration per route
@@ -52,6 +63,14 @@ func Load() *Config {
 			RollupURL:        getEnv("ROLLUP_URL", "http://localhost:3000"),
 			ContinuumGrpcURL: getEnv("CONTINUUM_GRPC_URL", "localhost:9090"),
 			ContinuumRestURL: getEnv("CONTINUUM_REST_URL", "http://localhost:8081"),
+		},
+		Database: DatabaseConfig{
+			Host:     getEnv("DB_HOST", "localhost"),
+			Port:     getEnv("DB_PORT", "5432"),
+			User:     getEnv("DB_USER", "postgres"),
+			Password: getEnv("DB_PASSWORD", ""),
+			DBName:   getEnv("DB_NAME", "continuum"),
+			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
 		RateLimit: RateLimitConfig{
 			RollupRPM:        getEnvInt("RATE_LIMIT_ROLLUP", 1000),

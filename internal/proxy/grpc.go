@@ -6,24 +6,29 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/fermilabs/fermi-api-gateway/internal/database"
 	pb "github.com/fermilabs/fermi-api-gateway/proto"
 )
 
 // GRPCProxy handles gRPC proxying and converts HTTP requests to gRPC calls
 type GRPCProxy struct {
-	target string
-	conn   *grpc.ClientConn
-	client pb.SequencerServiceClient
+	target     string
+	conn       *grpc.ClientConn
+	client     pb.SequencerServiceClient
+	repository *database.Repository
+	restURL    string
 }
 
 // NewGRPCProxy creates a new gRPC proxy client
-func NewGRPCProxy(target string) (*GRPCProxy, error) {
+func NewGRPCProxy(target string, repository *database.Repository, restURL string) (*GRPCProxy, error) {
 	// Create gRPC connection with connection pooling
 	conn, err := grpc.NewClient(
 		target,
@@ -40,9 +45,11 @@ func NewGRPCProxy(target string) (*GRPCProxy, error) {
 	client := pb.NewSequencerServiceClient(conn)
 
 	return &GRPCProxy{
-		target: target,
-		conn:   conn,
-		client: client,
+		target:     target,
+		conn:       conn,
+		client:     client,
+		repository: repository,
+		restURL:    restURL,
 	}, nil
 }
 
@@ -325,7 +332,6 @@ func (p *GRPCProxy) HandleStreamTicks() http.HandlerFunc {
 }
 
 // HandleGetRecentTransactions handles GET /api/v1/continuum/tx/recent?limit=10
-// Returns recent transactions (placeholder implementation)
 func (p *GRPCProxy) HandleGetRecentTransactions() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -335,25 +341,135 @@ func (p *GRPCProxy) HandleGetRecentTransactions() http.HandlerFunc {
 
 		// Get limit parameter (optional)
 		limitStr := r.URL.Query().Get("limit")
-		limit := 10 // default
+		limit := 50 // default
 		if limitStr != "" {
 			parsedLimit, err := strconv.Atoi(limitStr)
-			if err != nil || parsedLimit < 1 || parsedLimit > 100 {
-				http.Error(w, `{"error":"invalid limit (must be 1-100)"}`, http.StatusBadRequest)
+			if err != nil || parsedLimit < 1 || parsedLimit > 1000 {
+				http.Error(w, `{"error":"invalid limit (must be 1-1000)"}`, http.StatusBadRequest)
 				return
 			}
 			limit = parsedLimit
 		}
 
-		// TODO: Implement actual transaction fetching from backend
-		// For now, return empty array
-		response := map[string]interface{}{
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		// Try database first (if available)
+		if p.repository != nil {
+			transactions, err := p.repository.GetRecentTransactions(ctx, limit)
+			if err == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+				w.Header().Set("X-Data-Source", "database")
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"transactions": transactions,
+					"count":        len(transactions),
+				})
+				return
+			}
+		}
+
+		// Return empty result - database not available or not configured
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("X-Data-Source", "database_unavailable")
+		json.NewEncoder(w).Encode(map[string]interface{}{
 			"transactions": []interface{}{},
-			"total":        0,
-			"limit":        limit,
+			"count":        0,
+			"message":      "Recent transactions unavailable - database not configured or unavailable",
+		})
+	}
+}
+
+// HandleGetTransactionByHash handles GET /api/v1/continuum/tx/:hash
+func (p *GRPCProxy) HandleGetTransactionByHash() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract hash from URL path - expecting /api/v1/continuum/tx/{hash}
+		// After Chi routing, r.URL.Path will be /tx/{hash}
+		txHash := strings.TrimPrefix(r.URL.Path, "/tx/")
+		txHash = sanitizeInput(txHash)
+
+		if err := validateTransactionHash(txHash); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid transaction hash: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		// Try database first (if available)
+		if p.repository != nil {
+			tx, err := p.repository.GetTransaction(ctx, txHash)
+			if err == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Cache-Control", "private, max-age=1800")
+				w.Header().Set("X-Data-Source", "database")
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"source": "db",
+					"data":   tx,
+				})
+				return
+			}
+		}
+
+		// Fallback to REST API
+		resp, err := http.Get(p.restURL + "/tx/" + txHash)
+		if err != nil {
+			http.Error(w, `{"error":"service unavailable"}`, http.StatusServiceUnavailable)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusNotFound {
+			http.Error(w, `{"error":"transaction not found"}`, http.StatusNotFound)
+			return
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			http.Error(w, fmt.Sprintf(`{"error":"upstream returned status %d"}`, resp.StatusCode), http.StatusServiceUnavailable)
+			return
+		}
+
+		var data interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+			http.Error(w, `{"error":"failed to decode response"}`, http.StatusInternalServerError)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		w.Header().Set("Cache-Control", "private, max-age=1800")
+		w.Header().Set("X-Data-Source", "rest-api")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"source": "continuum",
+			"data":   data,
+		})
 	}
+}
+
+// sanitizeInput removes potentially harmful characters
+func sanitizeInput(input string) string {
+	// Allow only alphanumeric and common safe characters
+	re := regexp.MustCompile(`[^a-zA-Z0-9\-_]`)
+	return re.ReplaceAllString(input, "")
+}
+
+// validateTransactionHash validates a transaction hash format
+func validateTransactionHash(hash string) error {
+	if len(hash) == 0 {
+		return fmt.Errorf("hash cannot be empty")
+	}
+	if len(hash) > 128 {
+		return fmt.Errorf("hash too long")
+	}
+	// Check if it's a valid hex string
+	matched, _ := regexp.MatchString(`^[a-fA-F0-9]+$`, hash)
+	if !matched {
+		return fmt.Errorf("hash must be a valid hex string")
+	}
+	return nil
 }

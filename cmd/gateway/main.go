@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fermilabs/fermi-api-gateway/internal/config"
+	"github.com/fermilabs/fermi-api-gateway/internal/database"
 	"github.com/fermilabs/fermi-api-gateway/internal/health"
 	"github.com/fermilabs/fermi-api-gateway/internal/metrics"
 	"github.com/fermilabs/fermi-api-gateway/internal/middleware"
@@ -49,11 +50,26 @@ func main() {
 	registry := prometheus.NewRegistry()
 	m.MustRegister(registry)
 
+	// Initialize database connection (optional - gracefully handle if not configured)
+	var repo *database.Repository
+	if cfg.Database.Host != "" && cfg.Database.DBName != "" {
+		db, err := database.NewDB(cfg.Database)
+		if err != nil {
+			logger.Warn("Database connection failed - transaction endpoints will have limited functionality", zap.Error(err))
+		} else {
+			defer db.Close()
+			repo = database.NewRepository(db)
+			logger.Info("Database connected successfully")
+		}
+	} else {
+		logger.Info("Database not configured - transaction endpoints will have limited functionality")
+	}
+
 	// Initialize proxies
 	rollupProxy := proxy.NewHTTPProxy(cfg.Backend.RollupURL, 15*time.Second)
 	continuumRestProxy := proxy.NewHTTPProxy(cfg.Backend.ContinuumRestURL, 15*time.Second)
 
-	continuumGrpcProxy, err := proxy.NewGRPCProxy(cfg.Backend.ContinuumGrpcURL)
+	continuumGrpcProxy, err := proxy.NewGRPCProxy(cfg.Backend.ContinuumGrpcURL, repo, cfg.Backend.ContinuumRestURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize Continuum gRPC proxy: %v", err)
 	}
@@ -89,7 +105,13 @@ func main() {
 		r.Route("/continuum", func(r chi.Router) {
 			r.Use(ratelimit.Middleware(continuumLimiter))
 
-			// gRPC-specific endpoints (transaction submission, batch operations)
+			// Transaction endpoints (new - with database support)
+			r.Get("/tx/recent", continuumGrpcProxy.HandleGetRecentTransactions())
+			r.Handle("/tx/*", continuumGrpcProxy.HandleGetTransactionByHash())
+			r.Post("/tx", continuumGrpcProxy.HandleSubmitTransaction())
+			r.Post("/tx/batch", continuumGrpcProxy.HandleSubmitBatch())
+
+			// Legacy gRPC endpoints (keep for backward compatibility)
 			r.Post("/submit-transaction", continuumGrpcProxy.HandleSubmitTransaction())
 			r.Post("/submit-batch", continuumGrpcProxy.HandleSubmitBatch())
 			r.Get("/stream-ticks", continuumGrpcProxy.HandleStreamTicks())
@@ -101,7 +123,6 @@ func main() {
 			r.Get("/transaction", continuumGrpcProxy.HandleGetTransaction())
 			r.Get("/tick", continuumGrpcProxy.HandleGetTick())
 			r.Get("/chain-state", continuumGrpcProxy.HandleGetChainState())
-			r.Get("/tx/recent", continuumGrpcProxy.HandleGetRecentTransactions())
 
 			// REST-only endpoints - proxy to REST backend (catch-all for any unmatched routes)
 			r.Handle("/*", continuumRestProxy.Handler())
