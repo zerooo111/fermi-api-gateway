@@ -72,36 +72,34 @@ func main() {
 	r.Get("/health", health.Handler())
 	r.Get("/ready", health.ReadyHandler())
 
-	// API routes with rate limiting
-	r.Route("/api", func(r chi.Router) {
+	// API v1 routes - clean, versioned endpoints
+	r.Route("/api/v1", func(r chi.Router) {
 		// Rollup API - 1000 req/min = ~16.67 req/sec
 		rollupLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.RollupRPM)/60, cfg.RateLimit.RollupRPM)
-		r.Route("/rollup", func(r chi.Router) {
-			r.Use(ratelimit.Middleware(rollupLimiter))
-			// Proxy all requests to Rollup backend (strip /api/rollup prefix)
-			r.Handle("/*", http.StripPrefix("/api/rollup", rollupProxy.Handler()))
-		})
+		rollupHandler := ratelimit.Middleware(rollupLimiter)(rollupProxy.Handler())
+		r.Handle("/rollup/*", rollupHandler)
 
-		// Continuum gRPC - 500 req/min = ~8.33 req/sec
-		grpcLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.ContinuumGrpcRPM)/60, cfg.RateLimit.ContinuumGrpcRPM)
-		r.Route("/continuum/grpc", func(r chi.Router) {
-			r.Use(ratelimit.Middleware(grpcLimiter))
-			// gRPC endpoints with HTTP-to-gRPC conversion
+		// Continuum API - unified endpoint (frontend doesn't need to know about REST vs gRPC)
+		// Use higher rate limit (2000 req/min) since this combines both REST and gRPC traffic
+		continuumLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.ContinuumRestRPM)/60, cfg.RateLimit.ContinuumRestRPM)
+		r.Route("/continuum", func(r chi.Router) {
+			r.Use(ratelimit.Middleware(continuumLimiter))
+
+			// gRPC-specific endpoints (transaction submission, batch operations)
 			r.Post("/submit-transaction", continuumGrpcProxy.HandleSubmitTransaction())
 			r.Post("/submit-batch", continuumGrpcProxy.HandleSubmitBatch())
-			r.Get("/status", continuumGrpcProxy.HandleGetStatus())
+			r.Get("/stream-ticks", continuumGrpcProxy.HandleStreamTicks())
+
+			// Unified status endpoint - merges REST /status + gRPC GetStatus
+			r.Get("/status", continuumGrpcProxy.HandleUnifiedStatus(cfg.Backend.ContinuumRestURL))
+
+			// Other gRPC endpoints
 			r.Get("/transaction", continuumGrpcProxy.HandleGetTransaction())
 			r.Get("/tick", continuumGrpcProxy.HandleGetTick())
 			r.Get("/chain-state", continuumGrpcProxy.HandleGetChainState())
-			r.Get("/stream-ticks", continuumGrpcProxy.HandleStreamTicks())
-		})
 
-		// Continuum REST - 2000 req/min = ~33.33 req/sec
-		restLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.ContinuumRestRPM)/60, cfg.RateLimit.ContinuumRestRPM)
-		r.Route("/continuum/rest", func(r chi.Router) {
-			r.Use(ratelimit.Middleware(restLimiter))
-			// Proxy all requests to Continuum REST backend (strip /api/continuum/rest prefix)
-			r.Handle("/*", http.StripPrefix("/api/continuum/rest", continuumRestProxy.Handler()))
+			// REST-only endpoints - proxy to REST backend
+			r.Handle("/*", continuumRestProxy.Handler())
 		})
 	})
 
