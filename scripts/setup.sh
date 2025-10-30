@@ -31,6 +31,7 @@ echo "[2/8] Installing essential tools..."
 apt-get install -y \
     curl \
     wget \
+    unzip \
     git \
     build-essential \
     ufw \
