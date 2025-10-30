@@ -65,11 +65,20 @@ func (p *HTTPProxy) proxyRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Concatenate the base path with the request path
-	// If target is "http://backend.com/api/v1", and request is "/health"
-	// Result should be "http://backend.com/api/v1/health"
+	// For Chi router: r.URL.Path contains the full incoming path.
+	// We need to strip the /api/v1/continuum prefix to get the relative path.
+	// Example: /api/v1/continuum/ticks/recent should become /ticks/recent
 	basePath := strings.TrimSuffix(targetURL.Path, "/")
 	requestPath := r.URL.Path
+
+	// Strip /api/v1/continuum prefix if present
+	if strings.HasPrefix(requestPath, "/api/v1/continuum") {
+		requestPath = strings.TrimPrefix(requestPath, "/api/v1/continuum")
+	}
+	if strings.HasPrefix(requestPath, "/api/v1/rollup") {
+		requestPath = strings.TrimPrefix(requestPath, "/api/v1/rollup")
+	}
+
 	targetURL.Path = basePath + requestPath
 	targetURL.RawQuery = r.URL.RawQuery
 

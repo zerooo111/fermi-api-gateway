@@ -102,8 +102,7 @@ func main() {
 			r.Get("/tick", continuumGrpcProxy.HandleGetTick())
 			r.Get("/chain-state", continuumGrpcProxy.HandleGetChainState())
 
-			// REST-only endpoints - proxy to REST backend
-			r.Handle("/ticks/recent", continuumRestProxy.Handler())
+			// REST-only endpoints - proxy to REST backend (catch-all for any unmatched routes)
 			r.Handle("/*", continuumRestProxy.Handler())
 		})
 	})
