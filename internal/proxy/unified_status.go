@@ -46,11 +46,15 @@ func (p *GRPCProxy) HandleUnifiedStatus(restURL string) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
-		// Fetch gRPC GetStatus
-		grpcResp, err := p.client.GetStatus(ctx, &pb.GetStatusRequest{})
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"failed to fetch gRPC status: %v"}`, err), http.StatusInternalServerError)
-			return
+		w.Header().Set("Content-Type", "application/json")
+
+		// Fetch gRPC GetStatus (optional - don't fail if unavailable)
+		var grpcResp *pb.GetStatusResponse
+		var grpcErr error
+		grpcResp, grpcErr = p.client.GetStatus(ctx, &pb.GetStatusRequest{})
+		if grpcErr != nil {
+			// Log but don't fail - we'll use REST data only
+			grpcResp = nil
 		}
 
 		// Fetch REST /status
@@ -63,10 +67,25 @@ func (p *GRPCProxy) HandleUnifiedStatus(restURL string) http.HandlerFunc {
 
 		httpResp, err := http.DefaultClient.Do(httpReq)
 		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"failed to fetch REST status: %v"}`, err), http.StatusInternalServerError)
+			// If REST also fails, return error
+			if grpcErr != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"both backends unavailable: gRPC: %v, REST: %v"}`, grpcErr, err), http.StatusServiceUnavailable)
+			} else {
+				http.Error(w, fmt.Sprintf(`{"error":"failed to fetch REST status: %v"}`, err), http.StatusServiceUnavailable)
+			}
 			return
 		}
 		defer httpResp.Body.Close()
+
+		if httpResp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(httpResp.Body)
+			if grpcErr != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"REST returned %d: %s, gRPC unavailable: %v"}`, httpResp.StatusCode, string(body), grpcErr), http.StatusServiceUnavailable)
+			} else {
+				http.Error(w, fmt.Sprintf(`{"error":"REST returned %d: %s"}`, httpResp.StatusCode, string(body)), http.StatusServiceUnavailable)
+			}
+			return
+		}
 
 		body, err := io.ReadAll(httpResp.Body)
 		if err != nil {
@@ -83,19 +102,32 @@ func (p *GRPCProxy) HandleUnifiedStatus(restURL string) http.HandlerFunc {
 		// Calculate txn_per_second: REST total_transactions is for last 60 seconds
 		txnPerSecond := float64(restResp.TotalTransactions) / 60.0
 
-		// Build unified response
+		// Build unified response with fallback values if gRPC unavailable
 		unified := UnifiedStatusResponse{
 			ChainHeight:       restResp.ChainHeight,
-			TotalTransactions: grpcResp.TotalTransactions, // Lifetime total from gRPC
+			TotalTransactions: restResp.TotalTransactions, // Fallback to REST value if gRPC unavailable
 			Status:            restResp.Status,
-			UptimeSeconds:     grpcResp.UptimeSeconds,
+			UptimeSeconds:     0, // Only available from gRPC
 			TxnPerSecond:      txnPerSecond,
 			TicksPerSecond:    restResp.Last60Seconds.TicksPerSecond,
 			AverageTickTime:   restResp.Last60Seconds.MeanTickTimeMicros,
 		}
 
-		// Return merged JSON response
-		w.Header().Set("Content-Type", "application/json")
+		// If gRPC available, use its values
+		if grpcResp != nil {
+			unified.TotalTransactions = grpcResp.TotalTransactions // Lifetime total from gRPC
+			unified.UptimeSeconds = grpcResp.UptimeSeconds
+		}
+
+		// Return merged JSON response (include warning if gRPC unavailable)
+		if grpcErr != nil {
+			// Add a note that gRPC data is partial
+			unifiedJson, _ := json.Marshal(unified)
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `{"status":"partial","warnings":["gRPC backend unavailable, using REST data only"],"data":%s}`, string(unifiedJson))
+			return
+		}
+
 		if err := json.NewEncoder(w).Encode(unified); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"failed to encode response: %v"}`, err), http.StatusInternalServerError)
 			return
