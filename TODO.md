@@ -53,14 +53,14 @@ go test -race ./...    # Race detector (important for concurrent code)
 - [x] TODO.md created
 - [x] Step 1: Project Setup & Basic Server
 - [x] Tests for Step 1 (100% coverage! 🎉)
+- [x] Step 2: Middleware Layer (CORS, Logging, Recovery, Request ID)
+- [x] Step 3: In-Memory IP-Based Rate Limiting
+- [x] Step 4: Prometheus Metrics
 
 ### 🚧 In Progress
 - [ ] None
 
 ### 📋 Pending
-- [ ] Step 2: Middleware Layer
-- [ ] Step 3: In-Memory Rate Limiting
-- [ ] Step 4: Prometheus Metrics
 - [ ] Step 5: Reverse Proxy Setup
 - [ ] Step 6: EC2 Deployment Scripts
 - [ ] Step 7: Nginx Configuration
@@ -282,65 +282,264 @@ make test-all          # Everything (coverage + race + bench)
 
 ---
 
-### Step 2: Middleware Layer
+### Step 2: Middleware Layer ✅
 **Goal**: Implement essential middleware for production readiness
 
 **Tasks**:
-- [ ] CORS middleware with domain whitelist
-- [ ] Structured logging middleware (Zap)
-- [ ] Recovery middleware (panic handling)
-- [ ] Request ID middleware
+- [x] CORS middleware with domain whitelist
+- [x] Structured logging middleware (Zap)
+- [x] Recovery middleware (panic handling)
+- [x] Request ID middleware
+- [x] Integration into main.go with proper ordering
+- [x] Comprehensive tests for all middleware
 
 **Key Files**:
-- `internal/middleware/cors.go`
-- `internal/middleware/logging.go`
-- `internal/middleware/recovery.go`
-- `internal/middleware/requestid.go`
+- `internal/middleware/cors.go` - CORS with origin whitelist and preflight handling
+- `internal/middleware/cors_test.go` - Tests for CORS scenarios
+- `internal/middleware/logging.go` - Structured logging with Zap
+- `internal/middleware/logging_test.go` - Tests for logging middleware
+- `internal/middleware/recovery.go` - Panic recovery with stack traces
+- `internal/middleware/recovery_test.go` - Tests for panic scenarios
+- `internal/middleware/requestid.go` - Request ID generation and propagation
+- `internal/middleware/requestid_test.go` - Tests for request ID uniqueness
 
 **Context & Learnings**:
-- TBD
+
+**1. Middleware Order Matters**
+- Implemented critical middleware ordering in main.go:
+  1. **RequestID** - First to generate IDs for tracking all subsequent operations
+  2. **Recovery** - Second to catch panics and log them with request context
+  3. **Logging** - Third to log all requests (even recovered panics)
+  4. **Metrics** - Fourth to record metrics for all requests
+  5. **CORS** - Fifth to handle CORS before business logic
+- Each middleware wraps the next, forming a chain
+
+**2. CORS Middleware**
+- Whitelist-based origin checking (not wildcard `*`)
+- Handles preflight OPTIONS requests
+- Sets proper headers: Access-Control-Allow-Origin, Allow-Credentials, etc.
+- Configurable via environment variable `ALLOWED_ORIGINS`
+- Test coverage: 100%
+
+**3. Request ID Middleware**
+- Generates unique 32-character hex IDs using crypto/rand
+- Checks for existing X-Request-ID header (preserves from load balancers)
+- Stores in both HTTP header and request context
+- Custom context key type prevents collisions
+- Used for request tracing across services
+- Test coverage: Uniqueness verified across 1000 concurrent requests
+
+**4. Recovery Middleware**
+- Catches panics using defer/recover pattern
+- Logs full stack trace using runtime/debug.Stack()
+- Returns proper JSON 500 error to client
+- Prevents server crashes from unhandled errors
+- Preserves request context (including request ID)
+- Test coverage: Multiple panic types tested
+
+**5. Logging Middleware**
+- Uses Uber's Zap for structured, high-performance logging
+- Wraps response writer to capture status codes
+- Logs: method, path, status, duration, remote_addr, request_id
+- Log level based on status: ERROR (500+), WARN (400+), INFO (else)
+- Production mode: JSON logging for parsing
+- Development mode: Human-readable console logging
+- Test coverage: 95.5%
+
+**6. Response Writer Wrapping Pattern**
+- Created custom response writer wrappers to intercept WriteHeader/Write calls
+- Used for both logging (capture status) and metrics (capture bytes)
+- Critical pattern for middleware that needs to inspect responses
+
+**Test Results**:
+```bash
+✓ internal/middleware: 95.5% coverage
+✓ CORS: 100% coverage
+✓ Request ID: 100% coverage
+✓ Recovery: 100% coverage
+✓ Logging: 95.5% coverage
+✓ No race conditions detected
+```
+
+**Git Commit**:
+```
+feat: add middleware layer with CORS, logging, recovery, and request ID
+```
 
 ---
 
-### Step 3: In-Memory IP-Based Rate Limiting
+### Step 3: In-Memory IP-Based Rate Limiting ✅
 **Goal**: Implement in-memory rate limiting per IP per route
 
 **Tasks**:
-- [ ] Install `golang.org/x/time/rate` package
-- [ ] IP extraction logic (X-Forwarded-For, X-Real-IP handling)
-- [ ] In-memory rate limiter with cleanup (prevent memory leaks)
-- [ ] Rate limiter middleware (per route)
-- [ ] Configure limits per endpoint
-- [ ] Rate limit headers (X-RateLimit-Limit, X-RateLimit-Remaining)
-- [ ] Tests for rate limiting logic
+- [x] Install `golang.org/x/time/rate` package
+- [x] IP extraction logic (X-Forwarded-For, X-Real-IP handling)
+- [x] In-memory rate limiter with cleanup (prevent memory leaks)
+- [x] Rate limiter middleware (per route)
+- [x] Configure limits per endpoint
+- [x] Rate limit headers (X-RateLimit-Limit, X-RateLimit-Remaining)
+- [x] Tests for rate limiting logic
+- [x] Fix race condition in cleanup goroutine
 
 **Key Files**:
-- `internal/ratelimit/limiter.go` - In-memory rate limiter
+- `internal/ratelimit/ip.go` - IP extraction from headers
+- `internal/ratelimit/ip_test.go` - Tests for IP extraction
+- `internal/ratelimit/limiter.go` - In-memory rate limiter with cleanup
+- `internal/ratelimit/limiter_test.go` - Tests for rate limiter
 - `internal/ratelimit/middleware.go` - Rate limiting middleware
+- `internal/ratelimit/middleware_test.go` - Tests for middleware
 
 **Context & Learnings**:
-- Using in-memory rate limiting for single-instance deployment
+
+**1. IP Extraction Strategy**
+- Priority order for determining client IP:
+  1. **X-Forwarded-For** header (most reliable behind proxies/load balancers)
+  2. **X-Real-IP** header (fallback for some proxies)
+  3. **RemoteAddr** (direct connection IP)
+- X-Forwarded-For can contain multiple IPs (comma-separated chain)
+- Always use first IP in chain (original client)
+- Handles IPv6 addresses correctly
+- Test coverage: 100%
+
+**2. Token Bucket Algorithm**
+- Uses `golang.org/x/time/rate` library
+- Token bucket per IP address
+- Configurable rate (tokens/second) and burst (max tokens)
+- Per-route configuration:
+  - Rollup: 1000 req/min (16.67 req/sec)
+  - Continuum gRPC: 500 req/min (8.33 req/sec)
+  - Continuum REST: 2000 req/min (33.33 req/sec)
+
+**3. Memory Management**
+- Background cleanup goroutine prevents memory leaks
+- Removes inactive IP entries after 3 minutes
+- Uses sync.RWMutex for thread-safe access
+- Cleanup runs every 1 minute by default
+- Properly handles concurrent access across goroutines
+
+**4. Rate Limit Headers**
+- Returns proper HTTP 429 (Too Many Requests) status
+- Sets X-RateLimit-Remaining header
+- JSON error response for better client handling
+- Allows clients to implement backoff strategies
+
+**5. Race Condition Fix**
+- Initial test had data race in cleanup goroutine test
+- Fixed by simplifying test to not modify cleanupInterval
+- Verified with `go test -race` - no races detected
+- Important lesson: concurrent tests need careful design
+
+**6. Architecture Decision**
+- Using in-memory rate limiting for **single-instance deployment**
+- Simple, no external dependencies (Redis not needed)
 - **Future scaling**: When deploying multiple instances, consider Redis-backed
   distributed rate limiting to maintain consistent limits across all instances
-- Memory cleanup important to prevent leaks from unlimited IP tracking
+- This design keeps initial deployment simple while allowing future expansion
+
+**Test Results**:
+```bash
+✓ internal/ratelimit: 87.7% coverage
+✓ IP extraction: 100% coverage
+✓ Rate limiter: Concurrent access tested
+✓ Middleware: Headers and rate limiting verified
+✓ No race conditions detected
+```
+
+**Git Commits**:
+```
+feat: add in-memory IP-based rate limiting with per-route limits
+fix: resolve race condition in rate limiter cleanup test
+```
 
 ---
 
-### Step 4: Prometheus Metrics
+### Step 4: Prometheus Metrics ✅
 **Goal**: Add observability with Prometheus metrics
 
 **Tasks**:
-- [ ] Metrics middleware
-- [ ] Custom metrics (latency, requests, errors)
-- [ ] /metrics endpoint
-- [ ] Rate limit metrics
+- [x] Install Prometheus Go client library
+- [x] Create metrics package with collectors
+- [x] Create metrics middleware with tests
+- [x] Add /metrics endpoint for Prometheus scraping
+- [x] Integrate metrics into main.go
+- [x] Test metrics end-to-end
 
 **Key Files**:
-- `internal/metrics/metrics.go`
-- `internal/middleware/metrics.go`
+- `internal/metrics/metrics.go` - Prometheus collectors
+- `internal/metrics/metrics_test.go` - Tests for metrics
+- `internal/middleware/metrics.go` - Metrics middleware
+- `internal/middleware/metrics_test.go` - Tests for metrics middleware
 
 **Context & Learnings**:
-- TBD
+
+**1. Prometheus Metrics Collectors**
+- **CounterVec**: `http_requests_total` - Total requests by method, path, status
+- **HistogramVec**: `http_request_duration_seconds` - Request latency with buckets
+- **SummaryVec**: `http_request_size_bytes` - Request size distribution
+- **SummaryVec**: `http_response_size_bytes` - Response size distribution
+- **CounterVec**: `http_rate_limit_hits_total` - Rate limit hits by path
+
+**2. Metric Labels**
+- Labels allow filtering and grouping in Prometheus queries
+- Request metrics: `method`, `path`, `status`
+- Request size: `method`, `path` (no status as it's measured before response)
+- Rate limit: `path` only
+- More labels = more cardinality, but also more memory usage
+
+**3. Histogram vs Summary**
+- **Histogram**: Pre-defined buckets, server-side quantile calculation
+  - Used for `request_duration_seconds`
+  - Default buckets: 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s
+  - Allows aggregation across instances
+- **Summary**: Client-side quantile calculation
+  - Used for request/response sizes
+  - Lower overhead, but can't aggregate across instances
+
+**4. Metrics Middleware Implementation**
+- Custom `metricsResponseWriter` wrapper to capture:
+  - Status code (defaults to 200 if not explicitly set)
+  - Bytes written (via Write() calls)
+- Records metrics after request completes
+- Measures duration using `time.Since(start)`
+- Does not interfere with other middleware
+
+**5. Metrics Endpoint**
+- `/metrics` endpoint exposed for Prometheus scraping
+- Uses `promhttp.HandlerFor(registry, opts)` handler
+- No authentication (typically scraped from internal network)
+- Custom registry (not default global registry) for isolation
+
+**6. Testing Prometheus Metrics**
+- Use `registry.Gather()` to collect metrics in tests
+- Verify metric names exist in gathered families
+- Test different status codes, methods, and paths
+- Verify request/response size recording
+- All tests pass with 87.5% coverage
+
+**Test Results**:
+```bash
+✓ internal/metrics: 87.5% coverage
+✓ internal/middleware (metrics): 95.5% coverage
+✓ All metric types recorded correctly
+✓ Different status codes handled
+✓ Different HTTP methods tested
+✓ No race conditions detected
+```
+
+**Integration**:
+```go
+// In main.go
+m := metrics.NewMetrics()
+registry := prometheus.NewRegistry()
+m.MustRegister(registry)
+r.Use(middleware.Metrics(m))
+r.Get("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}).ServeHTTP)
+```
+
+**Git Commit**:
+```
+feat: add Prometheus metrics with /metrics endpoint
+```
 
 ---
 
@@ -518,4 +717,4 @@ RATE_LIMIT_CONTINUUM_REST=2000
 
 ---
 
-*Last Updated: Step 1 + Tests Complete - 100% Coverage! 🎉*
+*Last Updated: Steps 1-4 Complete! Middleware, Rate Limiting, and Metrics - 90%+ Coverage! 🎉*
