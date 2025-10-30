@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
@@ -24,6 +25,9 @@ import (
 )
 
 func main() {
+	// Load .env file if it exists (ignore error if file doesn't exist)
+	_ = godotenv.Load()
+
 	// Load configuration from environment
 	cfg := config.Load()
 
@@ -99,6 +103,7 @@ func main() {
 			r.Get("/chain-state", continuumGrpcProxy.HandleGetChainState())
 
 			// REST-only endpoints - proxy to REST backend
+			r.Handle("/ticks/recent", continuumRestProxy.Handler())
 			r.Handle("/*", continuumRestProxy.Handler())
 		})
 	})
