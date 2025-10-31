@@ -3,8 +3,13 @@
 ## Current Status
 - ✅ Nginx deployed and running on server
 - ✅ Local proxy working (`localhost/health` responds)
-- ❌ Cloudflare showing HTTP 522 error (connection timeout)
+- ✅ Domain accessible through Cloudflare (http://api.fermi.trade)
 - ℹ️  Domain: api.fermi.trade (proxied through Cloudflare)
+
+## Resolution
+**Issue:** AWS Security Group was only allowing SSH traffic (port 22)
+**Fix:** Added inbound rules for HTTP (port 80) and HTTPS (port 443) - all traffic allowed
+**Result:** Gateway now accessible at http://api.fermi.trade/health
 
 ## The 522 Error Explained
 
