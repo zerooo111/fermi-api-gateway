@@ -201,20 +201,129 @@ sudo nginx -t && sudo systemctl reload nginx
 
 Once HTTP is working, set up SSL with Let's Encrypt:
 
-1. Ensure DNS points to your server
-2. Ensure ports 80 and 443 are open in AWS Security Group
-3. Run SSL setup script (coming soon)
+### Prerequisites for SSL
+1. ✅ HTTP is working (`http://api.fermi.trade/health`)
+2. ✅ DNS points to your server
+3. ✅ Port 80 is open in AWS Security Group
+4. ⚠️ Port 443 must be open in AWS Security Group
+5. ⚠️ Valid email address for Let's Encrypt notifications
+
+### Upload SSL Script
 
 ```bash
-# (Not yet available - will be created if needed)
+# From your local machine
+scp scripts/setup-ssl.sh ec2-user@3.128.173.48:/opt/fermi-api-gateway/scripts/
+ssh ec2-user@3.128.173.48 "chmod +x /opt/fermi-api-gateway/scripts/setup-ssl.sh"
+```
+
+### Run SSL Setup
+
+```bash
+# SSH into your server
+ssh ec2-user@3.128.173.48
+
+# Optional: Set custom email for SSL notifications
+export SSL_EMAIL="your-email@example.com"
+
+# Run the SSL setup script
+cd /opt/fermi-api-gateway
 sudo bash scripts/setup-ssl.sh
 ```
 
-This will:
-- Install certbot
-- Obtain SSL certificate from Let's Encrypt
-- Deploy full HTTPS configuration (`deployments/nginx.conf`)
-- Set up auto-renewal (90-day certificates)
+### What the Script Does
+
+The automated SSL setup script performs 15 steps:
+
+1. **Installs certbot** (Let's Encrypt client)
+2. **Verifies DNS** points to your server
+3. **Checks services** (nginx and gateway running)
+4. **Creates webroot** for ACME challenges
+5. **Tests ACME endpoint** (/.well-known/acme-challenge/)
+6. **Obtains SSL certificate** from Let's Encrypt
+7. **Verifies certificate files** exist
+8. **Backs up HTTP config** (rollback safety)
+9. **Deploys HTTPS config** (deployments/nginx.conf)
+10. **Tests nginx syntax** (auto-rollback on failure)
+11. **Configures firewall** for HTTPS (port 443)
+12. **Reloads nginx** with SSL config
+13. **Tests HTTPS endpoint** (https://api.fermi.trade/health)
+14. **Sets up auto-renewal** (systemd timer)
+15. **Tests renewal process** (dry run)
+
+### After SSL Setup
+
+Your API will be accessible via:
+- 🔒 `https://api.fermi.trade/health` (HTTPS)
+- 🔒 `https://api.fermi.trade/api/v1/` (HTTPS)
+- 🔄 `http://api.fermi.trade` → redirects to HTTPS
+
+### SSL Certificate Management
+
+```bash
+# View certificate details
+sudo certbot certificates
+
+# Check expiry date
+sudo certbot certificates | grep "Expiry Date"
+
+# Manually renew (not usually needed)
+sudo certbot renew
+
+# Test renewal process
+sudo certbot renew --dry-run
+
+# Check auto-renewal timer
+sudo systemctl status certbot.timer
+sudo systemctl list-timers | grep certbot
+```
+
+### Verify SSL Security
+
+After setup, check your SSL rating:
+```bash
+# Test in browser
+https://api.fermi.trade/health
+
+# Check SSL Labs rating (A+ expected)
+https://www.ssllabs.com/ssltest/analyze.html?d=api.fermi.trade
+```
+
+Expected results:
+- **Grade:** A or A+
+- **Protocol Support:** TLS 1.2, TLS 1.3
+- **Certificate:** Valid (Let's Encrypt)
+- **HSTS:** Enabled (1 year)
+- **OCSP Stapling:** Enabled
+
+### Troubleshooting SSL Setup
+
+**Issue: Certificate generation fails**
+```bash
+# Check DNS
+dig +short api.fermi.trade
+
+# Should match your server IP
+curl -s http://169.254.169.254/latest/meta-data/public-ipv4
+
+# Test ACME endpoint
+curl http://api.fermi.trade/.well-known/acme-challenge/test
+```
+
+**Issue: Port 443 not accessible**
+- Check AWS Security Group allows HTTPS (port 443)
+- Check firewall: `sudo firewall-cmd --list-all`
+
+**Issue: Certificate expired**
+```bash
+# Check expiry
+sudo certbot certificates
+
+# Force renewal
+sudo certbot renew --force-renewal
+
+# Reload nginx
+sudo systemctl reload nginx
+```
 
 ## Monitoring
 
