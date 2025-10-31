@@ -45,10 +45,22 @@ fi
 echo "[1/8] Updating system packages..."
 $PKG_UPDATE
 
+# Handle curl conflict on Amazon Linux 2023 (curl-minimal vs curl)
+# Remove curl-minimal if present and install full curl package
+if rpm -q curl-minimal &> /dev/null; then
+    echo "Removing curl-minimal to install full curl package..."
+    $PKG_MANAGER remove -y curl-minimal 2>/dev/null || true
+fi
+
+# Install curl (or skip if already installed)
+if ! command -v curl &> /dev/null; then
+    echo "Installing curl..."
+    $PKG_INSTALL curl || echo "Note: curl installation skipped (may already be present)"
+fi
+
 # Install essential tools and development packages
 echo "[2/8] Installing essential tools..."
 $PKG_INSTALL \
-    curl \
     wget \
     unzip \
     git \

@@ -429,6 +429,21 @@ sudo journalctl -u fermi-gateway -n 100 --no-pager
 - Port 8080 already in use → Check with `sudo lsof -i :8080`
 - Backend services unreachable → Verify URLs in `.env`
 
+### Package Installation Issues
+
+**curl-minimal conflict (Amazon Linux 2023):**
+
+If you see a conflict error when installing curl:
+
+```bash
+# Remove curl-minimal first
+sudo dnf remove -y curl-minimal
+# Then install curl
+sudo dnf install -y curl
+```
+
+The setup script handles this automatically, but if you're installing packages manually, use the above.
+
 ### SSL Certificate Issues
 
 **Certificate not obtained:**
