@@ -118,8 +118,8 @@ log "Build successful: $(ls -lh $BUILD_BINARY)"
 # Install systemd service file (always update to ensure correct user/group)
 log "Installing systemd service file..."
 if [ -f "$APP_DIR/deployments/fermi-gateway.service" ]; then
-    # Copy service file and replace user/group with actual user
-    sed "s/User=.*/User=$ACTUAL_USER/g; s/Group=.*/Group=$ACTUAL_USER/g" \
+    # Copy service file and replace user/group with actual user, update ReadWritePaths
+    sed "s/User=.*/User=$ACTUAL_USER/g; s/Group=.*/Group=$ACTUAL_USER/g; s|ReadWritePaths=.*|ReadWritePaths=/opt/fermi-api-gateway/logs /home/$ACTUAL_USER/.postgresql|g" \
         "$APP_DIR/deployments/fermi-gateway.service" > "/etc/systemd/system/$SERVICE_NAME.service"
     systemctl daemon-reload
     log "Systemd service file installed for user: $ACTUAL_USER"
@@ -157,11 +157,19 @@ if systemctl is-active --quiet "$SERVICE_NAME"; then
     # Test health endpoint
     log "Testing health endpoint..."
     sleep 2
-    if curl -s http://localhost:8080/health > /dev/null; then
+    
+    # Get port from .env file or default to 8080
+    GATEWAY_PORT=$(grep "^PORT=" "$APP_DIR/.env" 2>/dev/null | cut -d= -f2 || echo "8080")
+    HEALTH_URL="http://localhost:${GATEWAY_PORT}/health"
+    
+    log "Testing health endpoint at $HEALTH_URL..."
+    if curl -s -f "$HEALTH_URL" > /dev/null 2>&1; then
         log "Health check passed!"
-        curl -s http://localhost:8080/health | jq '.'
+        curl -s "$HEALTH_URL" | jq '.' 2>/dev/null || curl -s "$HEALTH_URL"
     else
-        log "WARNING: Health check failed"
+        log "WARNING: Health check failed at $HEALTH_URL"
+        log "Service might be starting on a different port. Check logs:"
+        log "sudo journalctl -u $SERVICE_NAME -n 30 --no-pager"
     fi
 else
     log "ERROR: Service failed to start"
