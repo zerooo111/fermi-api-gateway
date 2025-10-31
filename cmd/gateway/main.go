@@ -79,10 +79,10 @@ func main() {
 	r := chi.NewRouter()
 
 	// Apply global middleware (order matters!)
-	r.Use(middleware.RequestID)           // Generate request IDs first
-	r.Use(middleware.Recovery)            // Recover from panics
-	r.Use(middleware.Logging(logger))     // Log all requests
-	r.Use(middleware.Metrics(m))          // Record metrics
+	r.Use(middleware.RequestID)                    // Generate request IDs first
+	r.Use(middleware.Recovery(logger))             // Recover from panics
+	r.Use(middleware.Logging(logger))              // Log all requests
+	r.Use(middleware.Metrics(m))                   // Record metrics
 	r.Use(middleware.CORS(cfg.CORS.AllowedOrigins)) // Handle CORS
 
 	// Metrics endpoint (no auth for now)

@@ -33,8 +33,8 @@ LimitNPROC=4096
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-# ProtectHome=true  # Disabled to allow database cert access if needed
-ReadWritePaths=/opt/fermi-api-gateway/logs /home/ec2-user/.postgresql
+ProtectHome=read-only  # Allows read access to home for database certs if needed
+ReadWritePaths=/opt/fermi-api-gateway/logs
 
 # Logging
 StandardOutput=journal

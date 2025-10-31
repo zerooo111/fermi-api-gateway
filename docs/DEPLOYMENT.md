@@ -225,7 +225,19 @@ Expected response:
 View logs:
 
 ```bash
-# Follow logs in real-time
+# Pretty formatted logs (recommended)
+sudo bash /opt/fermi-api-gateway/scripts/view-logs.sh
+
+# Follow logs in real-time with formatting
+sudo bash /opt/fermi-api-gateway/scripts/view-logs.sh -f
+
+# View only errors and warnings
+sudo bash /opt/fermi-api-gateway/scripts/view-logs.sh -e
+
+# View last 100 lines
+sudo bash /opt/fermi-api-gateway/scripts/view-logs.sh -n 100
+
+# Raw logs (alternative)
 sudo journalctl -u fermi-gateway -f
 
 # View last 50 lines
@@ -587,9 +599,11 @@ sudo systemctl restart fermi-gateway
 sudo systemctl status fermi-gateway
 
 # Logs
-sudo journalctl -u fermi-gateway -f          # Follow logs
-sudo journalctl -u fermi-gateway -n 100      # Last 100 lines
-sudo journalctl -u fermi-gateway --since "1 hour ago"
+sudo bash /opt/fermi-api-gateway/scripts/view-logs.sh -f    # Pretty formatted logs (follow)
+sudo bash /opt/fermi-api-gateway/scripts/view-logs.sh -e    # Errors and warnings only
+sudo journalctl -u fermi-gateway -f                          # Raw logs (follow)
+sudo journalctl -u fermi-gateway -n 100                     # Last 100 lines
+sudo journalctl -u fermi-gateway --since "1 hour ago"       # Since time
 
 # Nginx
 sudo nginx -t                                 # Test config

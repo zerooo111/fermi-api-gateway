@@ -68,10 +68,17 @@ func Logging(logger *zap.Logger) func(http.Handler) http.Handler {
 			}
 
 			// Log at appropriate level based on status code
+			// Use shorter, cleaner messages for common requests
 			if wrapped.statusCode >= 500 {
 				logger.Error("HTTP request", fields...)
 			} else if wrapped.statusCode >= 400 {
-				logger.Warn("HTTP request", fields...)
+				// Suppress verbose logging for 404s - they're usually not critical
+				if wrapped.statusCode == 404 {
+					// Don't include stack trace info for 404s
+					logger.Debug("HTTP request", fields...)
+				} else {
+					logger.Warn("HTTP request", fields...)
+				}
 			} else {
 				logger.Info("HTTP request", fields...)
 			}
