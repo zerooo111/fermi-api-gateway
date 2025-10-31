@@ -6,8 +6,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
-Group=ubuntu
+User=ec2-user
+Group=ec2-user
 WorkingDirectory=/opt/fermi-api-gateway
 
 # Load environment variables from .env file

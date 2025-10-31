@@ -115,16 +115,16 @@ fi
 
 log "Build successful: $(ls -lh $BUILD_BINARY)"
 
-# Install systemd service file if not already installed
-if [ ! -f "/etc/systemd/system/$SERVICE_NAME.service" ]; then
-    log "Installing systemd service file..."
-    if [ -f "$APP_DIR/deployments/fermi-gateway.service" ]; then
-        cp "$APP_DIR/deployments/fermi-gateway.service" "/etc/systemd/system/$SERVICE_NAME.service"
-        systemctl daemon-reload
-        log "Systemd service file installed"
-    else
-        log "WARNING: Systemd service file not found at $APP_DIR/deployments/fermi-gateway.service"
-    fi
+# Install systemd service file (always update to ensure correct user/group)
+log "Installing systemd service file..."
+if [ -f "$APP_DIR/deployments/fermi-gateway.service" ]; then
+    # Copy service file and replace user/group with actual user
+    sed "s/User=.*/User=$ACTUAL_USER/g; s/Group=.*/Group=$ACTUAL_USER/g" \
+        "$APP_DIR/deployments/fermi-gateway.service" > "/etc/systemd/system/$SERVICE_NAME.service"
+    systemctl daemon-reload
+    log "Systemd service file installed for user: $ACTUAL_USER"
+else
+    log "WARNING: Systemd service file not found at $APP_DIR/deployments/fermi-gateway.service"
 fi
 
 # Stop the service if it's running

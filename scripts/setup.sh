@@ -189,6 +189,42 @@ mkdir -p "$APP_DIR/logs"
 mkdir -p "$APP_DIR/bin"
 chown -R "$ACTUAL_USER:$ACTUAL_USER" "$APP_DIR"
 
+# Configure systemd journald log rotation
+echo "[7.5/8] Configuring systemd journald log rotation..."
+JOURNALD_CONF="/etc/systemd/journald.conf"
+if [ -f "$JOURNALD_CONF" ]; then
+    # Backup original config
+    cp "$JOURNALD_CONF" "$JOURNALD_CONF.bak.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
+    
+    # Configure log rotation limits if not already set
+    if ! grep -q "^SystemMaxUse=" "$JOURNALD_CONF"; then
+        # Add log rotation settings
+        cat >> "$JOURNALD_CONF" << 'JOURNALEOF'
+
+# Fermi API Gateway - Log Rotation Configuration
+# Automatically configured by setup.sh
+SystemMaxUse=1G
+SystemMaxFileSize=200M
+SystemMaxFiles=10
+MaxRetentionSec=7day
+JOURNALEOF
+        echo "Journald log rotation configured"
+        echo "  - Max total size: 1GB"
+        echo "  - Max file size: 200MB"
+        echo "  - Max files: 10"
+        echo "  - Retention: 7 days"
+    else
+        echo "Journald log rotation already configured"
+    fi
+    
+    # Restart journald to apply changes (if modified)
+    if [ "$JOURNALD_CONF" -nt /var/log/journal ]; then
+        systemctl restart systemd-journald 2>/dev/null || true
+    fi
+else
+    echo "WARNING: Journald config not found at $JOURNALD_CONF"
+fi
+
 # Create environment file template
 echo "[8/8] Creating environment file template..."
 cat > "$APP_DIR/.env" << 'ENVEOF'
