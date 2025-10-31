@@ -103,7 +103,22 @@ sudo bash scripts/setup.sh
 
 **Duration**: ~5-10 minutes
 
-**Note**: Git is already included in the setup script's package installation, so if you skipped Step 2, it will be installed here.
+**Important Notes**:
+
+- Git is already included in the setup script's package installation, so if you skipped Step 2, it will be installed here.
+- After running `setup.sh`, you may need to reload your shell or source the profile to use Go:
+
+  ```bash
+  # Option 1: Reload your shell session
+  source ~/.bashrc
+  # OR start a new shell session
+
+  # Option 2: Use Go directly from /usr/local/go/bin/go
+  /usr/local/go/bin/go version
+
+  # Option 3: The setup script creates symlinks, so if /usr/local/bin is in your PATH:
+  go version
+  ```
 
 ### Step 5: Move Application to Installation Directory
 
@@ -443,6 +458,36 @@ sudo dnf install -y curl
 ```
 
 The setup script handles this automatically, but if you're installing packages manually, use the above.
+
+### Go Command Not Found
+
+**If `go` command is not found after running setup.sh:**
+
+```bash
+# Check if Go is installed
+ls -la /usr/local/go/bin/go
+
+# Option 1: Source the profile file
+source /etc/profile.d/go.sh
+
+# Option 2: Use the full path
+/usr/local/go/bin/go version
+
+# Option 3: Create symlink manually (if not done by setup script)
+sudo ln -sf /usr/local/go/bin/go /usr/local/bin/go
+sudo ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+
+# Option 4: Reload your shell session
+exec bash
+# OR logout and login again
+```
+
+**For Makefile usage**, ensure Go is in your PATH before running `make`:
+
+```bash
+export PATH=$PATH:/usr/local/go/bin
+make install
+```
 
 ### SSL Certificate Issues
 

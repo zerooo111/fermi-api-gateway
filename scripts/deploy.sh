@@ -23,6 +23,10 @@ fi
 # Get the actual user (not root when using sudo)
 ACTUAL_USER=${SUDO_USER:-$USER}
 
+# Ensure logs directory exists
+mkdir -p "$APP_DIR/logs"
+chown "$ACTUAL_USER:$ACTUAL_USER" "$APP_DIR/logs" 2>/dev/null || true
+
 # Log function
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"

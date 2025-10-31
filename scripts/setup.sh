@@ -74,25 +74,39 @@ $PKG_INSTALL \
 # Install Go
 echo "[3/8] Installing Go..."
 GO_VERSION="1.24.5"
-if ! command -v go &> /dev/null; then
+if ! command -v go &> /dev/null || ! go version &> /dev/null; then
     cd /tmp
     wget "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
     rm -rf /usr/local/go
     tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz"
     rm "go${GO_VERSION}.linux-amd64.tar.gz"
 
-    # Add Go to PATH for all users
+    # Add Go to PATH for all users (system-wide)
+    # Method 1: /etc/profile.d/go.sh (for interactive shells)
     echo 'export PATH=$PATH:/usr/local/go/bin' > /etc/profile.d/go.sh
     echo 'export GOPATH=$HOME/go' >> /etc/profile.d/go.sh
     chmod +x /etc/profile.d/go.sh
+    
+    # Method 2: Create symlinks in /usr/local/bin (always in PATH)
+    ln -sf /usr/local/go/bin/go /usr/local/bin/go
+    ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 
     # Source for current session
     export PATH=$PATH:/usr/local/go/bin
     export GOPATH=$USER_HOME/go
 
-    echo "Go installed: $(go version)"
+    echo "Go installed: $(/usr/local/go/bin/go version)"
+    echo "Go binary available at: /usr/local/go/bin/go"
+    echo "Symlink created at: /usr/local/bin/go"
 else
     echo "Go already installed: $(go version)"
+    
+    # Ensure symlinks exist even if Go was previously installed
+    if [ ! -L /usr/local/bin/go ] && [ -f /usr/local/go/bin/go ]; then
+        ln -sf /usr/local/go/bin/go /usr/local/bin/go
+        ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+        echo "Created symlinks for Go binaries"
+    fi
 fi
 
 # Install Protocol Buffers compiler
