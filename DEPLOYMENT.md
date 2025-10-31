@@ -3,7 +3,7 @@
 ## Quick Start - Deploy to Production
 
 ### Prerequisites
-- EC2 instance with public IP: `3.128.173.48`
+- EC2 instance with public IP
 - Domain: `api.fermi.trade` pointing to your server IP
 - AWS Security Group allowing ports 80, 443, 8080
 
@@ -12,14 +12,12 @@
 From your local machine:
 
 ```bash
-cd /Users/zeroo111/Developer/fermi-api-gateway
-
 # Upload deployment files
-scp deployments/nginx-http-only.conf ec2-user@3.128.173.48:/opt/fermi-api-gateway/deployments/
-scp scripts/deploy-nginx.sh ec2-user@3.128.173.48:/opt/fermi-api-gateway/scripts/
+scp deployments/nginx.conf ec2-user@YOUR_SERVER_IP:/opt/fermi-api-gateway/deployments/
+scp scripts/deploy-nginx.sh ec2-user@YOUR_SERVER_IP:/opt/fermi-api-gateway/scripts/
 
 # Make script executable
-ssh ec2-user@3.128.173.48 "chmod +x /opt/fermi-api-gateway/scripts/deploy-nginx.sh"
+ssh ec2-user@YOUR_SERVER_IP "chmod +x /opt/fermi-api-gateway/scripts/deploy-nginx.sh"
 ```
 
 ### 2. Deploy Nginx
@@ -212,15 +210,15 @@ Once HTTP is working, set up SSL with Let's Encrypt:
 
 ```bash
 # From your local machine
-scp scripts/setup-ssl.sh ec2-user@3.128.173.48:/opt/fermi-api-gateway/scripts/
-ssh ec2-user@3.128.173.48 "chmod +x /opt/fermi-api-gateway/scripts/setup-ssl.sh"
+scp scripts/setup-ssl.sh ec2-user@YOUR_SERVER_IP:/opt/fermi-api-gateway/scripts/
+ssh ec2-user@YOUR_SERVER_IP "chmod +x /opt/fermi-api-gateway/scripts/setup-ssl.sh"
 ```
 
 ### Run SSL Setup
 
 ```bash
 # SSH into your server
-ssh ec2-user@3.128.173.48
+ssh ec2-user@YOUR_SERVER_IP
 
 # Optional: Set custom email for SSL notifications
 export SSL_EMAIL="your-email@example.com"

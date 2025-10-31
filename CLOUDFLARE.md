@@ -44,7 +44,7 @@ Go to **DNS** → **Records**:
 ```
 Type: A
 Name: api
-Content: 3.128.173.48 (your server IP)
+Content: YOUR_SERVER_IP
 Proxy status: Proxied (🟠 orange cloud)
 TTL: Auto
 ```
@@ -120,10 +120,10 @@ Upload and deploy the Cloudflare-ready config:
 
 ```bash
 # From local machine
-scp deployments/nginx-http-only.conf ec2-user@3.128.173.48:/opt/fermi-api-gateway/deployments/
+scp deployments/nginx.conf ec2-user@YOUR_SERVER_IP:/opt/fermi-api-gateway/deployments/
 
 # On server
-ssh ec2-user@3.128.173.48
+ssh ec2-user@YOUR_SERVER_IP
 cd /opt/fermi-api-gateway
 
 # Deploy the updated config

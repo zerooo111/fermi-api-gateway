@@ -124,11 +124,11 @@ echo ""
 
 # Step 4: Deploy new configuration
 echo "Step 4: Deploying new Nginx configuration..."
-if [ -f "$GATEWAY_DIR/deployments/nginx-http-only.conf" ]; then
-    cp "$GATEWAY_DIR/deployments/nginx-http-only.conf" /etc/nginx/conf.d/fermi-gateway.conf
+if [ -f "$GATEWAY_DIR/deployments/nginx.conf" ]; then
+    cp "$GATEWAY_DIR/deployments/nginx.conf" /etc/nginx/conf.d/fermi-gateway.conf
     echo "  ✓ Configuration deployed: /etc/nginx/conf.d/fermi-gateway.conf"
 else
-    echo "  ✗ Error: Source config not found at $GATEWAY_DIR/deployments/nginx-http-only.conf"
+    echo "  ✗ Error: Source config not found at $GATEWAY_DIR/deployments/nginx.conf"
     exit 1
 fi
 echo ""

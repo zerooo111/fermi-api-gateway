@@ -1,74 +1,57 @@
 # Nginx Configuration Files
 
-This directory contains production-grade nginx configurations for the Fermi API Gateway.
+This directory contains the production-grade nginx configuration for the Fermi API Gateway.
 
-## Available Configurations
+## Configuration File
 
-### 1. nginx-http-only.conf
-**Purpose:** HTTP-only configuration for initial setup and testing
+### nginx.conf
+**Purpose:** Production configuration designed for Cloudflare proxy
 
-**Use when:**
-- Setting up for the first time
-- Testing domain and DNS configuration
-- Before SSL certificates are obtained
+**Architecture:**
+```
+Client (HTTPS) → Cloudflare (SSL) → Your Server (HTTP:80) → Nginx → Gateway (:8080)
+```
 
 **Features:**
-- ✅ Rate limiting (3 tiers)
-- ✅ Security headers
-- ✅ Compression
-- ✅ Metrics access control
-- ✅ SSE streaming support
-- ✅ Error handling
-- ❌ No SSL/HTTPS (insecure for production)
+- ✅ Rate limiting (3 tiers: 100/50/20 req/sec)
+- ✅ Security headers (6 types)
+- ✅ Cloudflare IP restoration (real client IPs)
+- ✅ Cloudflare headers forwarding (CF-Ray, CF-Connecting-IP)
+- ✅ Gzip compression
+- ✅ Metrics access control (internal IPs only)
+- ✅ SSE streaming support (24h timeouts)
+- ✅ Custom JSON error pages
+- ✅ Hidden file access blocking
+- ✅ Client size/timeout limits
+
+**SSL/HTTPS:**
+- Cloudflare handles all SSL/TLS termination
+- No certificates needed on your server
+- Automatic HTTPS for all clients
+- Free and zero maintenance
 
 **Deployment:**
 ```bash
+# Upload to server
+scp deployments/nginx.conf ec2-user@YOUR_IP:/opt/fermi-api-gateway/deployments/
+
+# Deploy on server
+ssh ec2-user@YOUR_IP
+cd /opt/fermi-api-gateway
 sudo bash scripts/deploy-nginx.sh
 ```
 
-### 2. nginx.conf
-**Purpose:** Full production configuration with SSL/HTTPS
+## Cloudflare Integration
 
-**Use when:**
-- Ready for production deployment
-- SSL certificates obtained from Let's Encrypt
-- Need HTTPS encryption
+This configuration is optimized for use with Cloudflare proxy:
 
-**Features:**
-- ✅ All features from HTTP-only config
-- ✅ SSL/TLS 1.2 & 1.3
-- ✅ HTTP to HTTPS redirect
-- ✅ HSTS with preload
-- ✅ OCSP stapling
-- ✅ Modern cipher suites
-- ✅ Content Security Policy
+**Cloudflare Setup:**
+1. Set SSL mode to **Flexible** in Cloudflare dashboard
+2. Enable proxy (orange cloud) for your DNS record
+3. Deploy this nginx config
+4. Done! HTTPS works automatically
 
-**Deployment:**
-```bash
-# First obtain SSL certificate (will be automated in setup-ssl.sh)
-# Then deploy this config
-sudo cp /opt/fermi-api-gateway/deployments/nginx.conf /etc/nginx/conf.d/fermi-gateway.conf
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-## Configuration Comparison
-
-| Feature | HTTP-only | HTTPS (Full) |
-|---------|-----------|--------------|
-| Domain | api.fermi.trade | api.fermi.trade |
-| SSL/HTTPS | ❌ | ✅ |
-| HTTP to HTTPS redirect | N/A | ✅ |
-| Rate Limiting | ✅ 3 tiers | ✅ 3 tiers |
-| Security Headers | ✅ Basic | ✅ Enhanced + HSTS |
-| Compression | ✅ | ✅ |
-| Metrics Protection | ✅ | ✅ |
-| SSE Streaming | ✅ | ✅ |
-| Error Handling | ✅ JSON | ✅ JSON |
-| Hidden File Block | ✅ | ✅ |
-| Client Limits | ✅ 10MB/10s | ✅ 10MB/10s |
-| Keepalive | ✅ Optimized | ✅ Optimized |
-| OCSP Stapling | N/A | ✅ |
-| Content Security Policy | ❌ | ✅ |
+See [CLOUDFLARE.md](../CLOUDFLARE.md) for complete setup guide.
 
 ## Rate Limiting Configuration
 
