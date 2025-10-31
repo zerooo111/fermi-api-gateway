@@ -21,20 +21,40 @@ echo "Setting up for user: $ACTUAL_USER"
 echo "Home directory: $USER_HOME"
 echo ""
 
+# Detect Amazon Linux version
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS_VERSION_ID=${VERSION_ID%%.*}
+fi
+
+# Determine package manager
+if command -v dnf &> /dev/null; then
+    PKG_MANAGER="dnf"
+    PKG_INSTALL="dnf install -y"
+    PKG_UPDATE="dnf update -y"
+elif command -v yum &> /dev/null; then
+    PKG_MANAGER="yum"
+    PKG_INSTALL="yum install -y"
+    PKG_UPDATE="yum update -y"
+else
+    echo "ERROR: Neither yum nor dnf found. This script requires Amazon Linux."
+    exit 1
+fi
+
 # Update system packages
 echo "[1/8] Updating system packages..."
-apt-get update
-apt-get upgrade -y
+$PKG_UPDATE
 
-# Install essential tools
+# Install essential tools and development packages
 echo "[2/8] Installing essential tools..."
-apt-get install -y \
+$PKG_INSTALL \
     curl \
     wget \
     unzip \
     git \
-    build-essential \
-    ufw \
+    gcc \
+    make \
+    firewalld \
     certbot \
     python3-certbot-nginx \
     jq
@@ -86,24 +106,54 @@ go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 echo "export PATH=\$PATH:\$GOPATH/bin" >> ~/.bashrc
 EOF
 
-# Install Nginx
+# Install Nginx (Amazon Linux Extras for AL2, or regular package for AL2023)
 echo "[5/8] Installing Nginx..."
 if ! command -v nginx &> /dev/null; then
-    apt-get install -y nginx
+    if [ "$PKG_MANAGER" = "yum" ]; then
+        # Amazon Linux 2
+        amazon-linux-extras install -y nginx1 || $PKG_INSTALL nginx
+    else
+        # Amazon Linux 2023+
+        $PKG_INSTALL nginx
+    fi
+    
+    # Create sites-available and sites-enabled directories (for Amazon Linux)
+    mkdir -p /etc/nginx/sites-available
+    mkdir -p /etc/nginx/sites-enabled
+    
+    # Ensure nginx main config includes sites-enabled
+    NGINX_CONF="/etc/nginx/nginx.conf"
+    if [ -f "$NGINX_CONF" ] && ! grep -q "sites-enabled" "$NGINX_CONF"; then
+        # Try to add include directive near existing include statements
+        if grep -q "include.*conf.d" "$NGINX_CONF"; then
+            # Add after conf.d include line
+            sed -i '/include.*conf.d/a\    include /etc/nginx/sites-enabled/*;' "$NGINX_CONF"
+        elif grep -q "http {" "$NGINX_CONF"; then
+            # Add after http { line
+            sed -i '/http {/a\    include /etc/nginx/sites-enabled/*;' "$NGINX_CONF"
+        fi
+    fi
+    
     systemctl enable nginx
+    systemctl start nginx
     echo "Nginx installed: $(nginx -v 2>&1)"
 else
     echo "Nginx already installed: $(nginx -v 2>&1)"
+    # Ensure directories exist even if nginx is already installed
+    mkdir -p /etc/nginx/sites-available
+    mkdir -p /etc/nginx/sites-enabled
 fi
 
 # Configure firewall
 echo "[6/8] Configuring firewall..."
-ufw --force enable
-ufw allow 22/tcp    # SSH
-ufw allow 80/tcp    # HTTP
-ufw allow 443/tcp   # HTTPS
-ufw allow 8080/tcp  # Gateway (for internal access)
-ufw status verbose
+systemctl enable firewalld
+systemctl start firewalld
+firewall-cmd --permanent --add-service=ssh
+firewall-cmd --permanent --add-service=http
+firewall-cmd --permanent --add-service=https
+firewall-cmd --permanent --add-port=8080/tcp
+firewall-cmd --reload
+firewall-cmd --list-all
 
 # Create application directory
 echo "[7/8] Creating application directory..."

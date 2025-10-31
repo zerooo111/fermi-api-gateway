@@ -29,6 +29,10 @@ APP_DIR="/opt/fermi-api-gateway"
 NGINX_AVAILABLE="/etc/nginx/sites-available"
 NGINX_ENABLED="/etc/nginx/sites-enabled"
 
+# Create nginx config directories if they don't exist (for Amazon Linux)
+mkdir -p "$NGINX_AVAILABLE"
+mkdir -p "$NGINX_ENABLED"
+
 echo "Domain: $DOMAIN"
 if [ -n "$EMAIL" ]; then
     echo "Email: $EMAIL"
@@ -50,7 +54,9 @@ fi
 # Create certbot webroot directory
 echo "[1/7] Creating certbot webroot directory..."
 mkdir -p /var/www/certbot
-chown -R www-data:www-data /var/www/certbot
+# Use nginx user for Amazon Linux (www-data for Ubuntu)
+NGINX_USER="nginx"
+chown -R $NGINX_USER:$NGINX_USER /var/www/certbot
 
 # Copy nginx configuration
 echo "[2/7] Installing Nginx configuration..."

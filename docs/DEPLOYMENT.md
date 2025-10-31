@@ -19,7 +19,7 @@ This guide walks you through deploying the Fermi API Gateway to an EC2 instance 
 ### EC2 Instance Requirements
 
 - **Instance Type**: t3.medium or better (2 vCPU, 4GB RAM minimum)
-- **OS**: Ubuntu 22.04 LTS or Ubuntu 24.04 LTS
+- **OS**: Amazon Linux 2 or Amazon Linux 2023
 - **Storage**: 20GB+ EBS volume
 - **Security Group**: Ports 22 (SSH), 80 (HTTP), 443 (HTTPS) open
 
@@ -43,10 +43,22 @@ This guide walks you through deploying the Fermi API Gateway to an EC2 instance 
 ### Step 1: Connect to Your EC2 Instance
 
 ```bash
-ssh -i your-key.pem ubuntu@your-ec2-ip
+ssh -i your-key.pem ec2-user@your-ec2-ip
 ```
 
-### Step 2: Clone the Repository
+### Step 2: Install Git (Required for Cloning)
+
+Amazon Linux doesn't include git by default. Install it first:
+
+```bash
+# For Amazon Linux 2
+sudo yum install -y git
+
+# For Amazon Linux 2023+
+sudo dnf install -y git
+```
+
+### Step 3: Clone the Repository
 
 ```bash
 # Clone to a temporary location first
@@ -55,7 +67,22 @@ git clone https://github.com/fermilabs/fermi-api-gateway.git
 cd fermi-api-gateway
 ```
 
-### Step 3: Run Initial Setup
+**Alternative: Download as ZIP** (if git installation fails):
+
+```bash
+# Install unzip if not already available
+sudo yum install -y unzip  # For Amazon Linux 2
+# OR
+sudo dnf install -y unzip  # For Amazon Linux 2023+
+
+cd /tmp
+curl -L https://github.com/fermilabs/fermi-api-gateway/archive/refs/heads/main.zip -o fermi-api-gateway.zip
+unzip fermi-api-gateway.zip
+mv fermi-api-gateway-main fermi-api-gateway
+cd fermi-api-gateway
+```
+
+### Step 4: Run Initial Setup
 
 This script installs all dependencies (Go, protobuf, Nginx, certbot, etc.)
 
@@ -68,15 +95,17 @@ sudo bash scripts/setup.sh
 - Updates system packages
 - Installs Go 1.24.5
 - Installs protobuf compiler and Go plugins
-- Installs Nginx
+- Installs Nginx (via Amazon Linux Extras for AL2, or regular package for AL2023)
 - Installs certbot for SSL
-- Configures firewall (UFW)
+- Configures firewall (firewalld)
 - Creates `/opt/fermi-api-gateway` directory
 - Creates environment file template
 
 **Duration**: ~5-10 minutes
 
-### Step 4: Move Application to Installation Directory
+**Note**: Git is already included in the setup script's package installation, so if you skipped Step 2, it will be installed here.
+
+### Step 5: Move Application to Installation Directory
 
 ```bash
 # Remove existing directory if any
@@ -86,18 +115,18 @@ sudo rm -rf /opt/fermi-api-gateway
 sudo mv /tmp/fermi-api-gateway /opt/fermi-api-gateway
 
 # Set correct ownership
-sudo chown -R ubuntu:ubuntu /opt/fermi-api-gateway
+sudo chown -R ec2-user:ec2-user /opt/fermi-api-gateway
 
 # Navigate to app directory
 cd /opt/fermi-api-gateway
 ```
 
-### Step 5: Configure Environment Variables
+### Step 6: Configure Environment Variables
 
 Edit the environment file with your actual configuration:
 
 ```bash
-sudo nano /opt/fermi-api-gateway/.env
+nano /opt/fermi-api-gateway/.env
 ```
 
 **Required Configuration:**
@@ -133,7 +162,7 @@ Save and exit: `Ctrl+X`, then `Y`, then `Enter`
 
 ## Application Deployment
 
-### Step 6: Deploy the Application
+### Step 7: Deploy the Application
 
 Run the deployment script:
 
@@ -154,7 +183,7 @@ sudo bash scripts/deploy.sh
 
 **Duration**: ~2-5 minutes
 
-### Step 7: Verify Deployment
+### Step 8: Verify Deployment
 
 Check service status:
 
@@ -195,7 +224,7 @@ sudo journalctl -u fermi-gateway --since "1 hour ago"
 
 ## SSL Configuration
 
-### Step 8: Obtain SSL Certificate
+### Step 9: Obtain SSL Certificate
 
 Run the SSL setup script with your domain:
 
@@ -219,7 +248,7 @@ sudo bash scripts/setup-ssl.sh api.yourdomain.com admin@yourdomain.com
 
 **Duration**: ~2-5 minutes
 
-### Step 9: Verify SSL Configuration
+### Step 10: Verify SSL Configuration
 
 Test HTTPS access:
 
@@ -251,7 +280,7 @@ sudo systemctl status nginx
 
 ## Monitoring Setup
 
-### Step 10: Verify Metrics Endpoint
+### Step 11: Verify Metrics Endpoint
 
 The `/metrics` endpoint is restricted to private networks for security.
 
@@ -263,7 +292,7 @@ curl http://localhost:8080/metrics
 
 You should see Prometheus metrics output.
 
-### Step 11: Configure External Monitoring (Optional)
+### Step 12: Configure External Monitoring (Optional)
 
 If you have a Prometheus server, add this target to your `prometheus.yml`:
 
@@ -539,12 +568,16 @@ curl https://yourdomain.com/api/continuum/rest/health
 1. **Keep system updated:**
 
    ```bash
-   sudo apt update && sudo apt upgrade -y
+   # For Amazon Linux 2
+   sudo yum update -y
+
+   # For Amazon Linux 2023+
+   sudo dnf update -y
    ```
 
 2. **Use SSH keys only** (disable password authentication)
 
-3. **Configure fail2ban** for SSH brute force protection
+3. **Configure fail2ban** for SSH brute force protection (optional, Amazon Linux may not include it by default)
 
 4. **Regularly review logs** for suspicious activity
 
