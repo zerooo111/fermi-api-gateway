@@ -26,6 +26,13 @@ func (mrw *metricsResponseWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// Flush implements http.Flusher interface for SSE support
+func (mrw *metricsResponseWriter) Flush() {
+	if flusher, ok := mrw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 // Metrics middleware records HTTP metrics
 func Metrics(m *metrics.Metrics) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
