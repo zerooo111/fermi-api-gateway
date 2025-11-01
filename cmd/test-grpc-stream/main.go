@@ -90,6 +90,9 @@ func main() {
 	tickCount := uint64(0)
 	startTime := time.Now()
 	lastPrintTime := startTime
+	var previousTickNumber uint64 = 0
+	var firstTickNumber uint64 = 0
+	skippedCount := 0
 
 	for {
 		tick, err := stream.Recv()
@@ -102,6 +105,12 @@ func main() {
 				fmt.Printf("  Ticks received: %d\n", tickCount)
 				if tickCount > 0 {
 					fmt.Printf("  Rate: %.2f ticks/sec\n", float64(tickCount)/elapsed.Seconds())
+					fmt.Printf("  Tick range: %d -> %d\n", firstTickNumber, previousTickNumber)
+					if skippedCount > 0 {
+						fmt.Printf("  ⚠️  Skipped ticks detected: %d gaps\n", skippedCount)
+					} else {
+						fmt.Printf("  ✓ Sequential: All ticks received in order\n")
+					}
 				}
 				return
 			}
@@ -122,6 +131,23 @@ func main() {
 		// Increment counter
 		tickCount++
 
+		// Check for sequential ticks
+		if tickCount == 1 {
+			firstTickNumber = tick.TickNumber
+			previousTickNumber = tick.TickNumber
+		} else {
+			expectedTick := previousTickNumber + 1
+			if tick.TickNumber != expectedTick {
+				gap := int64(tick.TickNumber) - int64(expectedTick)
+				if *verbose {
+					fmt.Printf("[WARNING] Tick gap detected! Expected %d, got %d (gap: %+d)\n",
+						expectedTick, tick.TickNumber, gap)
+				}
+				skippedCount++
+			}
+			previousTickNumber = tick.TickNumber
+		}
+
 		// Print tick info
 		if *verbose {
 			fmt.Printf("[TICK] #%d | Tick: %d | Txns: %d | BatchHash: %s | Time: %d\n",
@@ -137,11 +163,16 @@ func main() {
 			if now.Sub(lastPrintTime) >= time.Second {
 				elapsed := now.Sub(startTime)
 				rate := float64(tickCount) / elapsed.Seconds()
-				fmt.Printf("[%s] Ticks: %d | Rate: %.2f ticks/sec | Last Tick: %d\n",
+				status := "✓"
+				if skippedCount > 0 {
+					status = fmt.Sprintf("⚠️ %d gaps", skippedCount)
+				}
+				fmt.Printf("[%s] Ticks: %d | Rate: %.2f ticks/sec | Last: %d | %s\n",
 					now.Format("15:04:05"),
 					tickCount,
 					rate,
 					tick.TickNumber,
+					status,
 				)
 				lastPrintTime = now
 			}
@@ -156,6 +187,12 @@ func main() {
 			fmt.Printf("  Ticks received: %d\n", tickCount)
 			if tickCount > 0 {
 				fmt.Printf("  Rate: %.2f ticks/sec\n", float64(tickCount)/elapsed.Seconds())
+				fmt.Printf("  Tick range: %d -> %d\n", firstTickNumber, previousTickNumber)
+				if skippedCount > 0 {
+					fmt.Printf("  ⚠️  Skipped ticks detected: %d gaps\n", skippedCount)
+				} else {
+					fmt.Printf("  ✓ Sequential: All ticks received in order\n")
+				}
 			}
 			return
 		default:
