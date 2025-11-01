@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	pb "github.com/fermilabs/fermi-api-gateway/proto"
+	pb "github.com/fermilabs/fermi-api-gateway/proto/continuumv1"
 )
 
 // RESTStatusResponse represents the REST /status endpoint response
