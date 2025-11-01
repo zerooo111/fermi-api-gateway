@@ -1,4 +1,4 @@
-.PHONY: help install build run dev clean test gateway ingester ingester-debug
+.PHONY: help install build run dev clean test gateway ingester ingester-debug test-grpc
 
 # Load .env file if it exists (for shell environment)
 ifneq (,$(wildcard .env))
@@ -69,3 +69,9 @@ ingester-debug: ## Run tick ingester with console output (no database)
 	@echo "Building and starting tick ingester (debug mode - console output)..."
 	@go build -o bin/tick-ingester ./cmd/tick-ingester
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && OUTPUT_MODE=console OUTPUT_FORMAT=table ./bin/tick-ingester
+
+test-grpc: ## Test gRPC stream connection (diagnostic tool)
+	@echo "Building gRPC stream test tool..."
+	@go build -o bin/test-grpc-stream ./cmd/test-grpc-stream
+	@echo "Running test (use Ctrl+C to stop)..."
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && ./bin/test-grpc-stream -server "$${CONTINUUM_GRPC_URL:-100.24.216.168:9090}"
