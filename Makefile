@@ -1,4 +1,4 @@
-.PHONY: help install build run dev clean test
+.PHONY: help install build run dev clean test gateway ingester ingester-debug
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -55,3 +55,20 @@ lint: ## Run linter (requires golangci-lint)
 
 deps: ## Show dependency graph
 	go mod graph
+
+# === Main Services ===
+
+gateway: ## Run API gateway server (from .env)
+	@echo "Building and starting API gateway..."
+	@go build -o bin/gateway ./cmd/gateway
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && ./bin/gateway
+
+ingester: ## Run tick ingester with TimescaleDB (from .env)
+	@echo "Building and starting tick ingester (TimescaleDB mode)..."
+	@go build -o bin/tick-ingester ./cmd/tick-ingester
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && ./bin/tick-ingester
+
+ingester-debug: ## Run tick ingester with console output (no database)
+	@echo "Building and starting tick ingester (debug mode - console output)..."
+	@go build -o bin/tick-ingester ./cmd/tick-ingester
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && OUTPUT_MODE=console OUTPUT_FORMAT=table ./bin/tick-ingester
