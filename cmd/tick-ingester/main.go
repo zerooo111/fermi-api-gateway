@@ -14,6 +14,7 @@ import (
 	"github.com/fermilabs/fermi-api-gateway/internal/stream"
 	"github.com/fermilabs/fermi-api-gateway/internal/writer"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -190,7 +191,7 @@ func connectDatabase(ctx context.Context, cfg *ingestion.Config, logger *zap.Log
 	return pool, nil
 }
 
-// startHealthServer starts an HTTP server for health checks.
+// startHealthServer starts an HTTP server for health checks and metrics.
 func startHealthServer(port int, logger *zap.Logger) *http.Server {
 	mux := http.NewServeMux()
 
@@ -206,13 +207,19 @@ func startHealthServer(port int, logger *zap.Logger) *http.Server {
 		w.Write([]byte(`{"status":"ready"}`))
 	})
 
+	// Prometheus metrics endpoint
+	mux.Handle("/metrics", promhttp.Handler())
+
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: mux,
 	}
 
 	go func() {
-		logger.Info("Health check server started", zap.Int("port", port))
+		logger.Info("Health check and metrics server started",
+			zap.Int("port", port),
+			zap.String("metrics_path", "/metrics"),
+		)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("Health server error", zap.Error(err))
 		}

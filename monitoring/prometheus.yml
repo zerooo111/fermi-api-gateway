@@ -1,0 +1,22 @@
+# Prometheus configuration for Tick Ingestion Service
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'tick-ingester'
+    static_configs:
+      - targets: ['localhost:8081']
+        labels:
+          service: 'tick-ingester'
+          environment: 'production'
+
+    # Scrape metrics every 10 seconds for higher resolution
+    scrape_interval: 10s
+
+    # Add relabeling for better metric organization
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'tick_ingester_.*'
+        action: keep

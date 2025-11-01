@@ -18,6 +18,7 @@ type Pipeline struct {
 	parser      Parser
 	writer      Writer
 	logger      *zap.Logger
+	metrics     *Metrics
 	bufferSize  int
 	workerCount int
 	batchSize   int
@@ -66,6 +67,7 @@ func NewPipeline(reader StreamReader, parser Parser, writer Writer, logger *zap.
 		parser:        parser,
 		writer:        writer,
 		logger:        logger,
+		metrics:       NewMetrics("tick_ingester"),
 		bufferSize:    config.BufferSize,
 		workerCount:   config.WorkerCount,
 		batchSize:     config.BatchSize,
@@ -196,6 +198,8 @@ func (p *Pipeline) parseWorker(ctx context.Context, id int, pbTickCh <-chan *pb.
 					zap.Int("worker_id", id),
 					zap.Error(err),
 				)
+				p.metrics.RecordParseError()
+				p.metrics.RecordTickError()
 				continue
 			}
 
@@ -223,20 +227,25 @@ func (p *Pipeline) batchWriter(ctx context.Context, id int, tickCh <-chan *domai
 			return
 		}
 
+		batchSize := len(batch)
 		start := time.Now()
 		if err := p.writer.WriteBatch(ctx, batch); err != nil {
 			p.logger.Error("Failed to write batch",
 				zap.Int("worker_id", id),
-				zap.Int("batch_size", len(batch)),
+				zap.Int("batch_size", batchSize),
 				zap.Error(err),
 			)
+			p.metrics.RecordWriteError()
 		} else {
 			duration := time.Since(start)
 			p.logger.Debug("Wrote batch",
 				zap.Int("worker_id", id),
-				zap.Int("batch_size", len(batch)),
+				zap.Int("batch_size", batchSize),
 				zap.Duration("duration", duration),
 			)
+			p.metrics.RecordTickSuccess(batchSize)
+			p.metrics.ObserveBatchSize(batchSize)
+			p.metrics.ObserveWriteDuration(duration.Seconds())
 		}
 
 		// Reset batch
