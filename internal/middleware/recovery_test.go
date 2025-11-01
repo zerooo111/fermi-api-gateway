@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"go.uber.org/zap"
 )
 
 func TestRecovery(t *testing.T) {
@@ -53,8 +55,11 @@ func TestRecovery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Create test logger
+			logger := zap.NewNop() // No-op logger for tests
+
 			// Wrap handler with Recovery middleware
-			handler := Recovery(tt.handler)
+			handler := Recovery(logger)(tt.handler)
 
 			// Create request
 			req := httptest.NewRequest("GET", "/test", nil)
@@ -109,13 +114,16 @@ func TestRecovery(t *testing.T) {
 }
 
 func TestRecovery_PreservesRequestID(t *testing.T) {
+	// Create test logger
+	logger := zap.NewNop()
+
 	// Handler that panics
 	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("test panic")
 	})
 
 	// Wrap with both RequestID and Recovery
-	handler := Recovery(RequestID(panicHandler))
+	handler := Recovery(logger)(RequestID(panicHandler))
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rr := httptest.NewRecorder()
@@ -162,7 +170,10 @@ func TestRecovery_NeverExposePanicMessage(t *testing.T) {
 			testName = testName[:20]
 		}
 		t.Run("panic with: "+testName, func(t *testing.T) {
-			handler := Recovery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Create test logger
+			logger := zap.NewNop()
+
+			handler := Recovery(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				panic(sensitiveMsg)
 			}))
 
@@ -207,7 +218,10 @@ func TestRecovery_NeverExposePanicMessage(t *testing.T) {
 
 // TestRecovery_ConcurrentPanics tests that concurrent panics are handled safely
 func TestRecovery_ConcurrentPanics(t *testing.T) {
-	handler := Recovery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Create test logger
+	logger := zap.NewNop()
+
+	handler := Recovery(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("concurrent panic")
 	}))
 
@@ -246,7 +260,10 @@ func TestRecovery_ConcurrentPanics(t *testing.T) {
 
 // TestRecovery_PanicAfterWriteHeader tests panic after headers are written
 func TestRecovery_PanicAfterWriteHeader(t *testing.T) {
-	handler := Recovery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Create test logger
+	logger := zap.NewNop()
+
+	handler := Recovery(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("partial response"))
 		panic("panic after write")
@@ -272,7 +289,10 @@ func TestRecovery_PanicAfterWriteHeader(t *testing.T) {
 
 // TestRecovery_NilPanic tests recovery from nil pointer panic
 func TestRecovery_NilPanic(t *testing.T) {
-	handler := Recovery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Create test logger
+	logger := zap.NewNop()
+
+	handler := Recovery(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var p *int
 		_ = *p // nil pointer dereference
 	}))
@@ -299,7 +319,10 @@ func TestRecovery_NilPanic(t *testing.T) {
 
 // TestRecovery_JSONStructure validates exact JSON response structure
 func TestRecovery_JSONStructure(t *testing.T) {
-	handler := Recovery(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Create test logger
+	logger := zap.NewNop()
+
+	handler := Recovery(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("test")
 	}))
 
