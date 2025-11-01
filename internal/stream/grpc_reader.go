@@ -135,14 +135,25 @@ func (r *GRPCReader) readLoop(ctx context.Context, tickCh chan<- *pb.Tick, errCh
 		}
 
 		// Start streaming
+		r.logger.Info("Starting tick stream",
+			zap.String("server", r.serverAddr),
+			zap.Uint64("start_tick", r.startTick),
+		)
+
 		stream, err := r.client.StreamTicks(ctx, &pb.StreamTicksRequest{
 			StartTick: r.startTick,
 		})
 		if err != nil {
+			r.logger.Error("Failed to start stream",
+				zap.String("server", r.serverAddr),
+				zap.Error(err),
+			)
 			errCh <- fmt.Errorf("failed to start stream: %w", err)
 			r.sleep(ctx, r.reconnectDelay)
 			continue
 		}
+
+		r.logger.Info("Stream started successfully", zap.String("server", r.serverAddr))
 
 		// Reset backoff on successful connection
 		backoff = r.baseBackoff
@@ -165,6 +176,8 @@ func (r *GRPCReader) connect(ctx context.Context) error {
 		_ = r.conn.Close()
 	}
 
+	r.logger.Info("Connecting to gRPC server", zap.String("server", r.serverAddr))
+
 	conn, err := grpc.NewClient(
 		r.serverAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -173,11 +186,17 @@ func (r *GRPCReader) connect(ctx context.Context) error {
 		),
 	)
 	if err != nil {
+		r.logger.Error("Failed to create gRPC connection",
+			zap.String("server", r.serverAddr),
+			zap.Error(err),
+		)
 		return err
 	}
 
 	r.conn = conn
 	r.client = pb.NewSequencerServiceClient(conn)
+
+	r.logger.Info("Successfully connected to gRPC server", zap.String("server", r.serverAddr))
 
 	return nil
 }
