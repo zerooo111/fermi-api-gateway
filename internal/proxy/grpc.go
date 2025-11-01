@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/fermilabs/fermi-api-gateway/internal/database"
-	pb "github.com/fermilabs/fermi-api-gateway/proto"
+	pb "github.com/fermilabs/fermi-api-gateway/proto/continuumv1"
 )
 
 // GRPCProxy handles gRPC proxying and converts HTTP requests to gRPC calls

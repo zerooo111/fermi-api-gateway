@@ -1,0 +1,45 @@
+# Makefile for Tick Ingestion Service
+
+.PHONY: help build-ingester run-ingester run-ingester-console test-ingester clean-ingester
+
+# Default target
+help:
+	@echo "Tick Ingestion Service - Make targets:"
+	@echo ""
+	@echo "  build-ingester         - Build tick ingester binary"
+	@echo "  run-ingester           - Run with TimescaleDB (production mode)"
+	@echo "  run-ingester-console   - Run with console output (debug mode)"
+	@echo "  test-ingester          - Run ingestion tests"
+	@echo "  clean-ingester         - Clean build artifacts"
+	@echo ""
+
+# Build tick ingester
+build-ingester:
+	@echo "Building tick ingester..."
+	@go build -o bin/tick-ingester ./cmd/tick-ingester
+	@echo "✓ Binary created: bin/tick-ingester"
+
+# Run with TimescaleDB
+run-ingester: build-ingester
+	@echo "Starting tick ingester (TimescaleDB mode)..."
+	@./bin/tick-ingester
+
+# Run with console output (debugging)
+run-ingester-console: build-ingester
+	@echo "Starting tick ingester (console mode)..."
+	@OUTPUT_MODE=console OUTPUT_FORMAT=table ./bin/tick-ingester
+
+# Test ingestion packages
+test-ingester:
+	@echo "Running ingestion tests..."
+	@go test -v ./internal/ingestion/...
+	@go test -v ./internal/parser/...
+	@go test -v ./internal/stream/...
+	@go test -v ./internal/writer/...
+	@go test -v ./internal/domain/...
+
+# Clean build artifacts
+clean-ingester:
+	@echo "Cleaning tick ingester artifacts..."
+	@rm -f bin/tick-ingester
+	@echo "✓ Clean complete"
