@@ -173,7 +173,8 @@ func TestIsRecoverableError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isRecoverableError(tt.err)
+			reader := NewGRPCReader("localhost:50051")
+			got := reader.isRecoverableError(tt.err)
 			if got != tt.want {
 				t.Errorf("isRecoverableError() = %v, want %v", got, tt.want)
 			}

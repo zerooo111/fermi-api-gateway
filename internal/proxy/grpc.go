@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -25,10 +26,11 @@ type GRPCProxy struct {
 	client     pb.SequencerServiceClient
 	repository *database.Repository
 	restURL    string
+	logger     *zap.Logger
 }
 
 // NewGRPCProxy creates a new gRPC proxy client
-func NewGRPCProxy(target string, repository *database.Repository, restURL string) (*GRPCProxy, error) {
+func NewGRPCProxy(target string, repository *database.Repository, restURL string, logger *zap.Logger) (*GRPCProxy, error) {
 	// Create gRPC connection with connection pooling
 	conn, err := grpc.NewClient(
 		target,
@@ -44,12 +46,18 @@ func NewGRPCProxy(target string, repository *database.Repository, restURL string
 
 	client := pb.NewSequencerServiceClient(conn)
 
+	// Use nop logger if none provided
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
 	return &GRPCProxy{
 		target:     target,
 		conn:       conn,
 		client:     client,
 		repository: repository,
 		restURL:    restURL,
+		logger:     logger,
 	}, nil
 }
 
@@ -368,7 +376,7 @@ func (p *GRPCProxy) HandleGetRecentTransactions() http.HandlerFunc {
 				return
 			}
 			// Log the database error for debugging
-			fmt.Printf("[DEBUG] Database query failed: %v\n", err)
+			p.logger.Debug("Database query failed", zap.Error(err))
 		}
 
 		// Return empty result - database not available or not configured

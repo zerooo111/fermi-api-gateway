@@ -51,6 +51,7 @@ func main() {
 	reader := stream.NewGRPCReader(
 		cfg.ContinuumGRPCURL,
 		stream.WithStartTick(cfg.StartTick),
+		stream.WithLogger(logger),
 	)
 
 	parserInstance := parser.NewProtobufParser()

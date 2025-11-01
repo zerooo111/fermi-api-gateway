@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -41,7 +40,8 @@ func main() {
 		logger, err = zap.NewDevelopment()
 	}
 	if err != nil {
-		log.Fatalf("Failed to initialize logger: %v", err)
+		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+		os.Exit(1)
 	}
 	defer logger.Sync()
 
@@ -69,9 +69,9 @@ func main() {
 	rollupProxy := proxy.NewHTTPProxy(cfg.Backend.RollupURL, 15*time.Second)
 	continuumRestProxy := proxy.NewHTTPProxy(cfg.Backend.ContinuumRestURL, 15*time.Second)
 
-	continuumGrpcProxy, err := proxy.NewGRPCProxy(cfg.Backend.ContinuumGrpcURL, repo, cfg.Backend.ContinuumRestURL)
+	continuumGrpcProxy, err := proxy.NewGRPCProxy(cfg.Backend.ContinuumGrpcURL, repo, cfg.Backend.ContinuumRestURL, logger)
 	if err != nil {
-		log.Fatalf("Failed to initialize Continuum gRPC proxy: %v", err)
+		logger.Fatal("Failed to initialize Continuum gRPC proxy", zap.Error(err))
 	}
 	defer continuumGrpcProxy.Close()
 
@@ -149,7 +149,10 @@ func main() {
 
 	// Start the server
 	go func() {
-		log.Printf("Starting API Gateway on port %s (env: %s)", cfg.Server.Port, cfg.Server.Env)
+		logger.Info("Starting API Gateway",
+			zap.String("port", cfg.Server.Port),
+			zap.String("env", cfg.Server.Env),
+		)
 		serverErrors <- srv.ListenAndServe()
 	}()
 
@@ -160,10 +163,12 @@ func main() {
 	// Block until we receive a signal or an error
 	select {
 	case err := <-serverErrors:
-		log.Fatalf("Error starting server: %v", err)
+		logger.Fatal("Error starting server", zap.Error(err))
 
 	case sig := <-shutdown:
-		log.Printf("Received signal %v, starting graceful shutdown", sig)
+		logger.Info("Received shutdown signal, starting graceful shutdown",
+			zap.String("signal", sig.String()),
+		)
 
 		// Give outstanding requests a deadline for completion
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -172,9 +177,9 @@ func main() {
 		// Attempt graceful shutdown
 		if err := srv.Shutdown(ctx); err != nil {
 			srv.Close()
-			log.Fatalf("Could not gracefully shutdown the server: %v", err)
+			logger.Fatal("Could not gracefully shutdown the server", zap.Error(err))
 		}
 
-		log.Println("Server stopped gracefully")
+		logger.Info("Server stopped gracefully")
 	}
 }

@@ -3,10 +3,10 @@ package stream
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	pb "github.com/fermilabs/fermi-api-gateway/proto/continuumv1"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -20,6 +20,7 @@ type GRPCReader struct {
 	startTick  uint64
 	conn       *grpc.ClientConn
 	client     pb.SequencerServiceClient
+	logger     *zap.Logger
 
 	// Reconnection config
 	maxRetries     int
@@ -55,6 +56,13 @@ func WithBackoffConfig(base, max time.Duration, factor float64) GRPCReaderOption
 	}
 }
 
+// WithLogger sets the logger for the reader.
+func WithLogger(logger *zap.Logger) GRPCReaderOption {
+	return func(r *GRPCReader) {
+		r.logger = logger
+	}
+}
+
 // NewGRPCReader creates a new gRPC stream reader.
 func NewGRPCReader(serverAddr string, opts ...GRPCReaderOption) *GRPCReader {
 	r := &GRPCReader{
@@ -65,6 +73,7 @@ func NewGRPCReader(serverAddr string, opts ...GRPCReaderOption) *GRPCReader {
 		maxBackoff:     30 * time.Second,
 		backoffFactor:  2.0,
 		reconnectDelay: 500 * time.Millisecond,
+		logger:         zap.NewNop(), // Default: no-op logger
 	}
 
 	for _, opt := range opts {
@@ -186,7 +195,7 @@ func (r *GRPCReader) readStream(ctx context.Context, stream pb.SequencerService_
 		tick, err := stream.Recv()
 		if err != nil {
 			// Check if error is recoverable
-			if isRecoverableError(err) {
+			if r.isRecoverableError(err) {
 				errCh <- fmt.Errorf("stream error (will reconnect): %w", err)
 				return true
 			}
@@ -226,7 +235,7 @@ func (r *GRPCReader) nextBackoff(current time.Duration) time.Duration {
 }
 
 // isRecoverableError determines if a gRPC error is recoverable.
-func isRecoverableError(err error) bool {
+func (r *GRPCReader) isRecoverableError(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -240,7 +249,7 @@ func isRecoverableError(err error) bool {
 	st, ok := status.FromError(err)
 	if !ok {
 		// Unknown error type, treat as recoverable
-		log.Printf("Unknown error type, treating as recoverable: %v", err)
+		r.logger.Debug("Unknown error type, treating as recoverable", zap.Error(err))
 		return true
 	}
 
