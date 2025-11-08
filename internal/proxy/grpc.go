@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +16,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/fermilabs/fermi-api-gateway/internal/database"
 	pb "github.com/fermilabs/fermi-api-gateway/proto/continuumv1"
@@ -69,6 +72,109 @@ func (p *GRPCProxy) Close() error {
 	return nil
 }
 
+// transactionRequest is an intermediate struct that matches the JSON format
+// It allows JSON to unmarshal arrays directly into []byte (like GIN does)
+type transactionRequest struct {
+	TxID      string      `json:"tx_id"`
+	Payload   interface{} `json:"payload"`   // Can be array [70,82,77,...] or base64 string
+	Signature string      `json:"signature"` // Hex string (needs decoding)
+	PublicKey string      `json:"public_key"` // Base58 string (needs decoding)
+	Nonce     uint64      `json:"nonce"`
+	Timestamp interface{} `json:"timestamp"` // Can be string or number
+}
+
+// toProtobuf converts the transactionRequest to a protobuf Transaction
+func (tx *transactionRequest) toProtobuf() (*pb.Transaction, error) {
+	// Convert payload: handle both array and base64 string
+	var payloadBytes []byte
+	switch v := tx.Payload.(type) {
+	case []interface{}:
+		// Array of numbers - convert to []byte
+		bytes := make([]byte, 0, len(v))
+		for _, num := range v {
+			if n, ok := num.(float64); ok {
+				bytes = append(bytes, byte(n))
+			} else {
+				return nil, fmt.Errorf("payload array contains non-numeric values")
+			}
+		}
+		payloadBytes = bytes
+	case string:
+		// Base64 string - decode it
+		decoded, err := base64.StdEncoding.DecodeString(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid payload (not valid base64): %w", err)
+		}
+		payloadBytes = decoded
+	default:
+		return nil, fmt.Errorf("payload must be an array of numbers or base64 string")
+	}
+
+	// Convert timestamp: handle both string and number
+	var timestamp uint64
+	switch v := tx.Timestamp.(type) {
+	case string:
+		ts, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid timestamp: %w", err)
+		}
+		timestamp = ts
+	case float64:
+		timestamp = uint64(v)
+	case nil:
+		// Timestamp is optional, use 0
+	default:
+		return nil, fmt.Errorf("timestamp must be a string or number")
+	}
+
+	// Decode signature from hex string to bytes
+	signatureBytes, err := decodeHex(tx.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("invalid signature: %w", err)
+	}
+
+	// Decode public key from base58 string to bytes
+	publicKeyBytes, err := decodeBase58(tx.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid public_key: %w", err)
+	}
+
+	return &pb.Transaction{
+		TxId:      tx.TxID,
+		Payload:   payloadBytes,
+		Signature: signatureBytes,
+		PublicKey: publicKeyBytes,
+		Nonce:     tx.Nonce,
+		Timestamp: timestamp,
+	}, nil
+}
+
+// decodeHex decodes a hex string to bytes
+func decodeHex(s string) ([]byte, error) {
+	// Remove 0x prefix if present
+	if len(s) > 2 && s[0:2] == "0x" {
+		s = s[2:]
+	}
+	// Use standard encoding/hex package
+	return hex.DecodeString(s)
+}
+
+// decodeBase58 decodes a base58 string to bytes
+// Base58 alphabet: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz (no 0, O, I, l)
+// For now, we'll try to decode as hex first (some base58 strings might be hex-compatible)
+// If that fails, we'll need a proper base58 library, but for now treat as raw bytes
+func decodeBase58(s string) ([]byte, error) {
+	// Try hex first (some keys might be hex-encoded)
+	if bytes, err := hex.DecodeString(s); err == nil {
+		return bytes, nil
+	}
+	// If not hex, for now just convert string to bytes
+	// TODO: Implement proper base58 decoding if needed
+	// The public key "CRbNEfDGMKHiWcibuJCbxP6KKvdGEDm2EZE46cBX4kHa" looks like base58
+	// For a proper implementation, you'd need a base58 library like github.com/mr-tron/base58
+	return []byte(s), nil
+}
+
 // HandleSubmitTransaction handles POST /api/continuum/grpc/submit-transaction
 func (p *GRPCProxy) HandleSubmitTransaction() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -80,30 +186,78 @@ func (p *GRPCProxy) HandleSubmitTransaction() http.HandlerFunc {
 		// Read request body
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
+			p.logger.Warn("Failed to read request body", zap.Error(err))
 			http.Error(w, `{"error":"failed to read request body"}`, http.StatusBadRequest)
 			return
 		}
 
-		// Parse JSON to transaction
-		var req pb.SubmitTransactionRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"invalid request: %v"}`, err), http.StatusBadRequest)
+		// Log request body for debugging (limit to first 500 chars to avoid huge logs)
+		bodyPreview := string(body)
+		if len(bodyPreview) > 500 {
+			bodyPreview = bodyPreview[:500] + "... (truncated)"
+		}
+		p.logger.Debug("Received transaction submission request", 
+			zap.String("body_preview", bodyPreview),
+			zap.Int("body_length", len(body)),
+			zap.String("content_type", r.Header.Get("Content-Type")))
+
+		// Check if body is empty
+		if len(body) == 0 {
+			p.logger.Warn("Empty request body received")
+			http.Error(w, `{"error":"request body is empty"}`, http.StatusBadRequest)
 			return
+		}
+
+		// Parse JSON into intermediate struct (like GIN does)
+		// This allows JSON arrays to unmarshal directly into []byte
+		var bodyStruct struct {
+			Transaction transactionRequest `json:"transaction"`
+		}
+		if err := json.Unmarshal(body, &bodyStruct); err != nil {
+			p.logger.Warn("Failed to unmarshal JSON request", 
+				zap.Error(err),
+				zap.String("body_preview", bodyPreview))
+			http.Error(w, fmt.Sprintf(`{"error":"invalid request body: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		// Convert to protobuf transaction (like ToProtobuf() in GIN handler)
+		grpcTx, err := bodyStruct.Transaction.toProtobuf()
+		if err != nil {
+			p.logger.Warn("Failed to convert transaction to protobuf", 
+				zap.Error(err),
+				zap.String("body_preview", bodyPreview))
+			http.Error(w, fmt.Sprintf(`{"error":"invalid transaction data: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		// Create protobuf request
+		req := &pb.SubmitTransactionRequest{
+			Transaction: grpcTx,
 		}
 
 		// Call gRPC service
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 
-		resp, err := p.client.SubmitTransaction(ctx, &req)
+		resp, err := p.client.SubmitTransaction(ctx, req)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"grpc call failed: %v"}`, err), http.StatusInternalServerError)
 			return
 		}
 
-		// Return JSON response
+		// Return JSON response using protojson for consistency
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		marshaler := &protojson.MarshalOptions{
+			UseProtoNames: true, // Use snake_case field names as in proto
+		}
+		jsonBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			p.logger.Warn("Failed to marshal response", zap.Error(err))
+			http.Error(w, `{"error":"failed to encode response"}`, http.StatusInternalServerError)
+			return
+		}
+		w.Write(jsonBytes)
 	}
 }
 

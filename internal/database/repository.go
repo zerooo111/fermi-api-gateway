@@ -24,6 +24,15 @@ type Transaction struct {
 	Metadata           json.RawMessage `json:"metadata,omitempty"`
 }
 
+// OHLCCandle represents an OHLC (Open, High, Low, Close) candle
+type OHLCCandle struct {
+	Timestamp time.Time `json:"t"` // timestamp
+	Open      float64   `json:"o"` // open price
+	High      float64   `json:"h"` // high price
+	Low       float64   `json:"l"` // low price
+	Close     float64   `json:"c"` // close price
+}
+
 // Repository handles database operations for transactions
 type Repository struct {
 	db *DB
@@ -121,4 +130,91 @@ func (r *Repository) GetRecentTransactions(ctx context.Context, limit int) ([]Tr
 	}
 
 	return transactions, nil
+}
+
+// GetMarketCandles retrieves OHLC candles for a market within a time range
+// This queries the market_prices table (or equivalent) using TimescaleDB's time_bucket function
+// limit: maximum number of candles to return (Binance-style: default 500, max 1000)
+func (r *Repository) GetMarketCandles(ctx context.Context, marketID string, timeframe string, from, to time.Time, limit int) ([]OHLCCandle, error) {
+	// Map timeframe to PostgreSQL interval
+	intervalMap := map[string]string{
+		"1m":  "1 minute",
+		"5m":  "5 minutes",
+		"15m": "15 minutes",
+		"1h":  "1 hour",
+		"4h":  "4 hours",
+		"1d":  "1 day",
+	}
+
+	interval, ok := intervalMap[timeframe]
+	if !ok {
+		return nil, fmt.Errorf("invalid timeframe: %s", timeframe)
+	}
+
+	// Query using TimescaleDB's time_bucket for efficient aggregation
+	// Table schema: market_prices (market_id uuid, ts timestamptz, price numeric)
+	// Using window functions for first/last values (more efficient than subqueries)
+	// Alternative: If TimescaleDB toolkit extension is available, use first()/last() functions
+	query := `
+		WITH bucketed_data AS (
+			SELECT
+				time_bucket($1::interval, ts) AS bucket,
+				price,
+				ts,
+				ROW_NUMBER() OVER (PARTITION BY time_bucket($1::interval, ts) ORDER BY ts ASC) AS rn_asc,
+				ROW_NUMBER() OVER (PARTITION BY time_bucket($1::interval, ts) ORDER BY ts DESC) AS rn_desc
+			FROM market_prices
+			WHERE market_id = $2::uuid
+				AND ts >= $3
+				AND ts <= $4
+		),
+		aggregated AS (
+			SELECT
+				bucket,
+				MAX(CASE WHEN rn_asc = 1 THEN price END) AS open_price,
+				MAX(price) AS high_price,
+				MIN(price) AS low_price,
+				MAX(CASE WHEN rn_desc = 1 THEN price END) AS close_price
+			FROM bucketed_data
+			GROUP BY bucket
+		)
+		SELECT
+			bucket,
+			open_price,
+			high_price,
+			low_price,
+			close_price
+		FROM aggregated
+		WHERE open_price IS NOT NULL AND close_price IS NOT NULL
+		ORDER BY bucket ASC
+		LIMIT $5
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, interval, marketID, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	var candles []OHLCCandle
+	for rows.Next() {
+		var candle OHLCCandle
+		err := rows.Scan(
+			&candle.Timestamp,
+			&candle.Open,
+			&candle.High,
+			&candle.Low,
+			&candle.Close,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan failed: %w", err)
+		}
+		candles = append(candles, candle)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iteration failed: %w", err)
+	}
+
+	return candles, nil
 }

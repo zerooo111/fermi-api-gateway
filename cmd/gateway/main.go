@@ -96,8 +96,18 @@ func main() {
 	r.Route("/api/v1", func(r chi.Router) {
 		// Rollup API - 1000 req/min = ~16.67 req/sec
 		rollupLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.RollupRPM)/60, cfg.RateLimit.RollupRPM)
-		rollupHandler := ratelimit.Middleware(rollupLimiter)(rollupProxy.Handler())
-		r.Handle("/rollup/*", rollupHandler)
+		r.Route("/rollup", func(r chi.Router) {
+			r.Use(ratelimit.Middleware(rollupLimiter))
+
+			// Candles endpoint - queries database directly
+			if repo != nil {
+				candlesHandler := proxy.NewCandlesHandler(repo, logger)
+				r.Get("/markets/{marketId}/candles", candlesHandler.GetMarketCandles())
+			}
+
+			// Catch-all proxy handler for other rollup routes
+			r.Handle("/*", rollupProxy.Handler())
+		})
 
 		// Continuum API - unified endpoint (frontend doesn't need to know about REST vs gRPC)
 		// Use higher rate limit (2000 req/min) since this combines both REST and gRPC traffic
