@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -12,6 +13,11 @@ import (
 
 	"github.com/fermilabs/fermi-api-gateway/internal/database"
 )
+
+// roundTo2Decimals rounds a float64 to 2 decimal places
+func roundTo2Decimals(val float64) float64 {
+	return math.Round(val*100) / 100
+}
 
 // CandlesHandler handles market candles endpoint requests
 type CandlesHandler struct {
@@ -66,14 +72,27 @@ func (h *CandlesHandler) GetMarketCandles() http.HandlerFunc {
 		}
 
 		// Parse date range
+		// Support for incremental updates: use 'since' parameter to fetch only new candles
+		// This allows frontend to fetch historical data once, then poll for updates only
 		now := time.Now().UTC()
 		fromStr := r.URL.Query().Get("from")
+		sinceStr := r.URL.Query().Get("since") // New parameter for incremental updates
 		toStr := r.URL.Query().Get("to")
 
 		var from, to time.Time
 		var err error
 
-		if fromStr == "" {
+		// If 'since' is provided, use it instead of 'from' for incremental updates
+		// 'since' should be a timestamp in milliseconds (Unix epoch)
+		if sinceStr != "" {
+			sinceMs, err := strconv.ParseInt(sinceStr, 10, 64)
+			if err != nil {
+				h.writeErrorResponse(w, http.StatusBadRequest, "Invalid 'since' format. Use Unix timestamp in milliseconds (e.g., 1704067200000)")
+				return
+			}
+			// Convert milliseconds to time.Time, add 1ms to exclude the last candle (get only new ones)
+			from = time.Unix(0, sinceMs*int64(time.Millisecond)).UTC().Add(1 * time.Millisecond)
+		} else if fromStr == "" {
 			from = now.Add(-24 * time.Hour) // default: 24 hours ago
 		} else {
 			from, err = time.Parse(time.RFC3339, fromStr)
@@ -136,24 +155,40 @@ func (h *CandlesHandler) GetMarketCandles() http.HandlerFunc {
 		// Binance-style: Return array directly (no wrapping object) for efficiency
 		// Format: [[timestamp_ms, open, high, low, close], ...]
 		// Using compact array format reduces payload size by ~40% vs objects
+		// Prices are divided by 1M and rounded to 2 decimals to reduce response size (~20-33% smaller)
+		// This converts from USDC micro-units (e.g., 163885020) to USDC (e.g., 163.89)
 		candleArrays := make([][]interface{}, len(candles))
 		for i, candle := range candles {
 			// Convert timestamp to milliseconds (Unix epoch) for compactness
 			// Binance uses milliseconds since epoch (not RFC3339 strings)
 			timestampMs := candle.Timestamp.UnixMilli()
+			// Divide prices by 1M and round to 2 decimals for smaller response size
+			// This reduces JSON payload by ~20-33% and improves network transfer time
 			candleArrays[i] = []interface{}{
-				timestampMs, // Open time (ms)
-				candle.Open,  // Open price
-				candle.High,  // High price
-				candle.Low,   // Low price
-				candle.Close, // Close price
+				timestampMs,                                    // Open time (ms)
+				roundTo2Decimals(candle.Open / 1000000.0),   // Open price (USDC)
+				roundTo2Decimals(candle.High / 1000000.0),   // High price (USDC)
+				roundTo2Decimals(candle.Low / 1000000.0),    // Low price (USDC)
+				roundTo2Decimals(candle.Close / 1000000.0),  // Close price (USDC)
 			}
 		}
 
 		// Set response headers (Binance-style optimizations)
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "public, max-age=5")
+		if sinceStr == "" {
+			// Only cache full historical data, not incremental updates
+			w.Header().Set("Cache-Control", "public, max-age=5")
+		} else {
+			// Don't cache incremental updates
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		w.Header().Set("X-Data-Source", "database")
+		
+		// Add header with latest candle timestamp for frontend to use in next 'since' request
+		if len(candles) > 0 {
+			lastCandleTimestamp := candles[len(candles)-1].Timestamp.UnixMilli()
+			w.Header().Set("X-Last-Candle-Timestamp", strconv.FormatInt(lastCandleTimestamp, 10))
+		}
 		
 		// Note: gzip compression should be handled by middleware or reverse proxy
 		// Setting it here without actual compression would break the response
