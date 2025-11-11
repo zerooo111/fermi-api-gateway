@@ -155,6 +155,10 @@ func (r *Repository) GetMarketCandles(ctx context.Context, marketID string, time
 	// Table schema: market_prices (market_id uuid, ts timestamptz, price numeric)
 	// Using window functions for first/last values (more efficient than subqueries)
 	// Alternative: If TimescaleDB toolkit extension is available, use first()/last() functions
+	// 
+	// Note: Includes incomplete buckets (latest candle) so users can see current price.
+	// The close price for incomplete buckets is the last price up to the 'to' time,
+	// ensuring consistency when queries use the same 'to' time.
 	query := `
 		WITH bucketed_data AS (
 			SELECT
