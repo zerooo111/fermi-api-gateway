@@ -164,13 +164,19 @@ func (r *Repository) GetMarketCandles(ctx context.Context, marketID string, time
 			SELECT
 				time_bucket($1::interval, ts) AS bucket,
 				price,
-				ts,
-				ROW_NUMBER() OVER (PARTITION BY time_bucket($1::interval, ts) ORDER BY ts ASC) AS rn_asc,
-				ROW_NUMBER() OVER (PARTITION BY time_bucket($1::interval, ts) ORDER BY ts DESC) AS rn_desc
+				ts
 			FROM market_prices
 			WHERE market_id = $2::uuid
 				AND ts >= $3
 				AND ts <= $4
+		),
+		ranked_data AS (
+			SELECT
+				bucket,
+				price,
+				ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY ts ASC) AS rn_asc,
+				ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY ts DESC) AS rn_desc
+			FROM bucketed_data
 		),
 		aggregated AS (
 			SELECT
@@ -179,8 +185,10 @@ func (r *Repository) GetMarketCandles(ctx context.Context, marketID string, time
 				MAX(price) AS high_price,
 				MIN(price) AS low_price,
 				MAX(CASE WHEN rn_desc = 1 THEN price END) AS close_price
-			FROM bucketed_data
+			FROM ranked_data
 			GROUP BY bucket
+			HAVING MAX(CASE WHEN rn_asc = 1 THEN price END) IS NOT NULL 
+				AND MAX(CASE WHEN rn_desc = 1 THEN price END) IS NOT NULL
 		)
 		SELECT
 			bucket,
@@ -189,8 +197,7 @@ func (r *Repository) GetMarketCandles(ctx context.Context, marketID string, time
 			low_price,
 			close_price
 		FROM aggregated
-		WHERE open_price IS NOT NULL AND close_price IS NOT NULL
-		ORDER BY bucket ASC
+		ORDER BY bucket DESC
 		LIMIT $5
 	`
 
@@ -218,6 +225,12 @@ func (r *Repository) GetMarketCandles(ctx context.Context, marketID string, time
 
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("iteration failed: %w", err)
+	}
+
+	// Reverse to return chronological order (oldest to newest)
+	// Query returns newest first (DESC), but API should return oldest first (ASC)
+	for i, j := 0, len(candles)-1; i < j; i, j = i+1, j-1 {
+		candles[i], candles[j] = candles[j], candles[i]
 	}
 
 	return candles, nil
