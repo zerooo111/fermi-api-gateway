@@ -100,10 +100,8 @@ func main() {
 			r.Use(ratelimit.Middleware(rollupLimiter))
 
 			// Candles endpoint - queries database directly
-			if repo != nil {
-				candlesHandler := proxy.NewCandlesHandler(repo, logger)
-				r.Get("/markets/{marketId}/candles", candlesHandler.GetMarketCandles())
-			}
+			candlesHandler := proxy.NewCandlesHandler(repo, logger)
+			r.Get("/markets/{marketId}/candles", candlesHandler.GetMarketCandles())
 
 			// Catch-all proxy handler for other rollup routes
 			r.Handle("/*", rollupProxy.Handler())
