@@ -89,8 +89,11 @@ func (h *SSEHandler) HandleLiveStream(w http.ResponseWriter, r *http.Request) {
 	keepAliveTicker := time.NewTicker(30 * time.Second)
 	defer keepAliveTicker.Stop()
 
-	// Track last sent state to avoid duplicate sends
-	lastTickCount, lastTxCount := h.ringBuffer.Stats()
+	// Track last tick number to detect changes
+	lastTickNumber := uint64(0)
+	if len(ticks) > 0 {
+		lastTickNumber = ticks[len(ticks)-1].TickNumber
+	}
 
 	for {
 		select {
@@ -99,13 +102,19 @@ func (h *SSEHandler) HandleLiveStream(w http.ResponseWriter, r *http.Request) {
 			return
 
 		case <-ticker.C:
-			// Check if buffer has new data
-			currentTickCount, currentTxCount := h.ringBuffer.Stats()
-			if currentTickCount != lastTickCount || currentTxCount != lastTxCount {
-				// Get updated snapshot
-				ticks, transactions := h.ringBuffer.GetSnapshot()
+			// Get current snapshot
+			currentTicks, transactions := h.ringBuffer.GetSnapshot()
+
+			// Check if we have new data by comparing latest tick number
+			currentTickNumber := uint64(0)
+			if len(currentTicks) > 0 {
+				currentTickNumber = currentTicks[len(currentTicks)-1].TickNumber
+			}
+
+			// Send update if tick number changed (new data)
+			if currentTickNumber != lastTickNumber {
 				snapshot := StreamSnapshot{
-					Ticks:        ticks,
+					Ticks:        currentTicks,
 					Transactions: transactions,
 					Timestamp:    time.Now().Format(time.RFC3339Nano),
 				}
@@ -116,8 +125,7 @@ func (h *SSEHandler) HandleLiveStream(w http.ResponseWriter, r *http.Request) {
 				}
 				flusher.Flush()
 
-				lastTickCount = currentTickCount
-				lastTxCount = currentTxCount
+				lastTickNumber = currentTickNumber
 			}
 
 		case <-keepAliveTicker.C:
