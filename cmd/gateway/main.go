@@ -16,12 +16,15 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fermilabs/fermi-api-gateway/internal/config"
+	"github.com/fermilabs/fermi-api-gateway/internal/consumer"
 	"github.com/fermilabs/fermi-api-gateway/internal/database"
+	"github.com/fermilabs/fermi-api-gateway/internal/handlers"
 	"github.com/fermilabs/fermi-api-gateway/internal/health"
 	"github.com/fermilabs/fermi-api-gateway/internal/metrics"
 	"github.com/fermilabs/fermi-api-gateway/internal/middleware"
 	"github.com/fermilabs/fermi-api-gateway/internal/proxy"
 	"github.com/fermilabs/fermi-api-gateway/internal/ratelimit"
+	"github.com/fermilabs/fermi-api-gateway/internal/stream"
 )
 
 func main() {
@@ -75,6 +78,33 @@ func main() {
 	}
 	defer continuumGrpcProxy.Close()
 
+	// Initialize ring buffer for SSE streaming
+	ringBuffer := stream.NewRingBuffer(cfg.Stream.BufferSize, cfg.Stream.BufferSize)
+	logger.Info("Ring buffer initialized",
+		zap.Int("tick_buffer_size", cfg.Stream.BufferSize),
+		zap.Int("tx_buffer_size", cfg.Stream.BufferSize),
+	)
+
+	// Initialize Kafka consumer for tick streaming
+	tickConsumer, err := consumer.NewTickConsumer(&cfg.Redpanda, ringBuffer, logger)
+	if err != nil {
+		logger.Fatal("Failed to initialize Kafka consumer", zap.Error(err))
+	}
+
+	// Start Kafka consumer in background
+	consumerCtx, consumerCancel := context.WithCancel(context.Background())
+	defer consumerCancel()
+
+	go func() {
+		if err := tickConsumer.Start(consumerCtx); err != nil {
+			logger.Error("Kafka consumer stopped with error", zap.Error(err))
+		}
+	}()
+	logger.Info("Kafka consumer started", zap.Strings("brokers", cfg.Redpanda.Brokers))
+
+	// Initialize SSE handler
+	sseHandler := handlers.NewSSEHandler(ringBuffer, &cfg.Stream, logger)
+
 	// Create router
 	r := chi.NewRouter()
 
@@ -94,6 +124,9 @@ func main() {
 
 	// API v1 routes - clean, versioned endpoints
 	r.Route("/api/v1", func(r chi.Router) {
+		// SSE streaming endpoint (no rate limiting - it's self-throttled to configured FPS)
+		r.Get("/stream/live", sseHandler.HandleLiveStream)
+
 		// Rollup API - 1000 req/min = ~16.67 req/sec
 		rollupLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.RollupRPM)/60, cfg.RateLimit.RollupRPM)
 		r.Route("/rollup", func(r chi.Router) {
@@ -181,6 +214,14 @@ func main() {
 		// Give outstanding requests a deadline for completion
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+
+		// Stop Kafka consumer first
+		consumerCancel()
+		if err := tickConsumer.Close(); err != nil {
+			logger.Error("Error closing Kafka consumer", zap.Error(err))
+		} else {
+			logger.Info("Kafka consumer closed")
+		}
 
 		// Attempt graceful shutdown
 		if err := srv.Shutdown(ctx); err != nil {

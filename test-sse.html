@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Continuum Live Stream Test</title>
+    <style>
+        body {
+            font-family: 'Monaco', monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #00ff00;
+            border-bottom: 2px solid #00ff00;
+            padding-bottom: 10px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #2a2a2a;
+            border: 1px solid #00ff00;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00ff00;
+            margin-top: 5px;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .section {
+            background: #2a2a2a;
+            border: 1px solid #00ff00;
+            border-radius: 5px;
+            padding: 15px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #00ff00;
+            font-size: 18px;
+            border-bottom: 1px solid #00ff00;
+            padding-bottom: 10px;
+        }
+        .tick-item, .tx-item {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .tick-number {
+            color: #00aaff;
+            font-weight: bold;
+        }
+        .tx-hash {
+            color: #ffaa00;
+            font-weight: bold;
+        }
+        .timestamp {
+            color: #888;
+            font-size: 10px;
+        }
+        .status {
+            padding: 10px;
+            background: #2a2a2a;
+            border: 1px solid #00ff00;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .status.connected {
+            border-color: #00ff00;
+        }
+        .status.disconnected {
+            border-color: #ff0000;
+            color: #ff0000;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            background: #00ff00;
+            color: #1a1a1a;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #00cc00;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h1>Continuum Live Stream (60 FPS)</h1>
+
+    <div class="status" id="status">
+        <strong>Status:</strong> <span id="connectionStatus">Disconnected</span> |
+        <strong>FPS:</strong> <span id="fps">0</span> |
+        <strong>Last Update:</strong> <span id="lastUpdate">Never</span>
+    </div>
+
+    <div class="controls">
+        <button id="connectBtn" onclick="connect()">Connect</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+    </div>
+
+    <div class="stats">
+        <div class="stat-card">
+            <div class="stat-label">Buffer Ticks</div>
+            <div class="stat-value" id="tickCount">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Buffer Transactions</div>
+            <div class="stat-value" id="txCount">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Latest Tick</div>
+            <div class="stat-value" id="latestTick">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Events Received</div>
+            <div class="stat-value" id="eventCount">0</div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="section">
+            <h2>Recent Ticks (Last 10)</h2>
+            <div id="ticksList"></div>
+        </div>
+        <div class="section">
+            <h2>Recent Transactions (Last 10)</h2>
+            <div id="txList"></div>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let eventCount = 0;
+        let lastUpdateTime = 0;
+        let fps = 0;
+
+        function connect() {
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            // Connect to SSE endpoint
+            eventSource = new EventSource('http://localhost:3000/api/v1/stream/live');
+
+            eventSource.addEventListener('snapshot', (e) => {
+                console.log('Snapshot received:', e.data);
+                handleSnapshot(JSON.parse(e.data));
+            });
+
+            eventSource.addEventListener('update', (e) => {
+                console.log('Update received:', e.data);
+                handleUpdate(JSON.parse(e.data));
+            });
+
+            eventSource.onerror = (error) => {
+                console.error('SSE Error:', error);
+                updateStatus(false);
+            };
+
+            eventSource.onopen = () => {
+                console.log('SSE Connected');
+                updateStatus(true);
+            };
+
+            document.getElementById('connectBtn').disabled = true;
+            document.getElementById('disconnectBtn').disabled = false;
+        }
+
+        function disconnect() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            updateStatus(false);
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('disconnectBtn').disabled = true;
+        }
+
+        function handleSnapshot(data) {
+            eventCount++;
+            calculateFPS();
+            updateStats(data);
+            renderTicks(data.ticks);
+            renderTransactions(data.transactions);
+        }
+
+        function handleUpdate(data) {
+            eventCount++;
+            calculateFPS();
+            updateStats(data);
+            renderTicks(data.ticks);
+            renderTransactions(data.transactions);
+        }
+
+        function updateStats(data) {
+            document.getElementById('tickCount').textContent = data.ticks.length;
+            document.getElementById('txCount').textContent = data.transactions.length;
+            document.getElementById('eventCount').textContent = eventCount;
+
+            if (data.ticks.length > 0) {
+                const latestTick = data.ticks[data.ticks.length - 1];
+                document.getElementById('latestTick').textContent = latestTick.tick_number.toLocaleString();
+            }
+
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+        }
+
+        function calculateFPS() {
+            const now = Date.now();
+            if (lastUpdateTime > 0) {
+                const deltaMs = now - lastUpdateTime;
+                fps = Math.round(1000 / deltaMs);
+                document.getElementById('fps').textContent = fps;
+            }
+            lastUpdateTime = now;
+        }
+
+        function renderTicks(ticks) {
+            const ticksList = document.getElementById('ticksList');
+            const recentTicks = ticks.slice(-10).reverse();
+
+            ticksList.innerHTML = recentTicks.map(tick => `
+                <div class="tick-item">
+                    <div><span class="tick-number">Tick #${tick.tick_number.toLocaleString()}</span></div>
+                    <div class="timestamp">${new Date(tick.timestamp).toLocaleTimeString()}</div>
+                    <div>Transactions: ${tick.transactions.length}</div>
+                    <div style="font-size: 10px; color: #666;">VDF Output: ${tick.vdf_proof.output.substring(0, 16)}...</div>
+                </div>
+            `).join('');
+        }
+
+        function renderTransactions(transactions) {
+            const txList = document.getElementById('txList');
+            const recentTxs = transactions.slice(-10).reverse();
+
+            txList.innerHTML = recentTxs.map(tx => `
+                <div class="tx-item">
+                    <div><span class="tx-hash">TX ${tx.tx_hash.substring(0, 16)}...</span></div>
+                    <div class="timestamp">${new Date(tx.client_timestamp).toLocaleTimeString()}</div>
+                    <div>Seq: ${tx.sequence_number} | Nonce: ${tx.nonce}</div>
+                </div>
+            `).join('');
+        }
+
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            const statusText = document.getElementById('connectionStatus');
+
+            if (connected) {
+                status.classList.add('connected');
+                status.classList.remove('disconnected');
+                statusText.textContent = 'Connected';
+                statusText.style.color = '#00ff00';
+            } else {
+                status.classList.remove('connected');
+                status.classList.add('disconnected');
+                statusText.textContent = 'Disconnected';
+                statusText.style.color = '#ff0000';
+            }
+        }
+
+        // Auto-connect on load
+        window.addEventListener('load', () => {
+            console.log('Page loaded, ready to connect');
+        });
+    </script>
+</body>
+</html>
