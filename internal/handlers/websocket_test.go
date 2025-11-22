@@ -150,26 +150,35 @@ func TestWebSocketTickUpdates(t *testing.T) {
 
 	ringBuffer.AddTick(tick)
 
-	// Should receive tick update
+	// Should receive snapshot update (sent every 1 second)
 	var updateMsg WSMessage
 	ws.SetReadDeadline(time.Now().Add(5 * time.Second))
 	if err := ws.ReadJSON(&updateMsg); err != nil {
-		t.Fatalf("Failed to read tick update: %v", err)
+		t.Fatalf("Failed to read snapshot update: %v", err)
 	}
 
-	if updateMsg.Type != "tick_update" {
-		t.Errorf("Expected message type 'tick_update', got '%s'", updateMsg.Type)
+	if updateMsg.Type != "snapshot" {
+		t.Errorf("Expected message type 'snapshot', got '%s'", updateMsg.Type)
 	}
 
-	// Verify update structure
+	// Verify snapshot structure
 	dataMap, ok := updateMsg.Data.(map[string]interface{})
 	if !ok {
 		t.Fatalf("Expected data to be map[string]interface{}, got %T", updateMsg.Data)
 	}
 
-	tickMap, ok := dataMap["tick"].(map[string]interface{})
+	ticks, ok := dataMap["ticks"].([]interface{})
 	if !ok {
-		t.Fatalf("Expected tick to be map[string]interface{}, got %T", dataMap["tick"])
+		t.Fatalf("Expected ticks to be []interface{}, got %T", dataMap["ticks"])
+	}
+
+	if len(ticks) != 1 {
+		t.Errorf("Expected 1 tick in snapshot, got %d", len(ticks))
+	}
+
+	tickMap, ok := ticks[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected tick to be map[string]interface{}, got %T", ticks[0])
 	}
 
 	tickNumber := uint64(tickMap["tick_number"].(float64))
@@ -248,7 +257,7 @@ func TestWebSocketMultipleClients(t *testing.T) {
 
 	ringBuffer.AddTick(tick)
 
-	// Both clients should receive the update
+	// Both clients should receive the snapshot update (sent every 1 second)
 	var update1, update2 WSMessage
 	ws1.SetReadDeadline(time.Now().Add(5 * time.Second))
 	ws2.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -260,8 +269,18 @@ func TestWebSocketMultipleClients(t *testing.T) {
 		t.Fatalf("Client 2 failed to read update: %v", err)
 	}
 
-	if update1.Type != "tick_update" || update2.Type != "tick_update" {
-		t.Error("Both clients should receive tick_update")
+	if update1.Type != "snapshot" || update2.Type != "snapshot" {
+		t.Errorf("Both clients should receive snapshot, got %s and %s", update1.Type, update2.Type)
+	}
+
+	// Verify both clients got the same tick
+	data1Map, ok := update1.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected data to be map, got %T", update1.Data)
+	}
+	ticks1 := data1Map["ticks"].([]interface{})
+	if len(ticks1) == 0 {
+		t.Fatal("Expected at least 1 tick in snapshot")
 	}
 }
 
@@ -406,50 +425,46 @@ func TestWebSocketConcurrentWrites(t *testing.T) {
 	}
 
 	// Add multiple ticks concurrently to test thread safety
-	done := make(chan bool)
-	go func() {
-		for i := 0; i < 10; i++ {
-			tick := &domain.Tick{
-				TickNumber: uint64(i + 1),
-				Timestamp:  time.Now(),
-				VDFProof: domain.VDFProof{
-					Input:      "input",
-					Output:     "output",
-					Proof:      "proof",
-					Iterations: 1000,
-				},
-				Transactions: []domain.Transaction{},
-				BatchHash:    "batch",
-				PrevOutput:   "prev",
-				ReceivedAt:   time.Now(),
-			}
-			ringBuffer.AddTick(tick)
-			time.Sleep(10 * time.Millisecond)
+	// With 1-second snapshots, we'll add ticks quickly and expect a single snapshot update
+	for i := 0; i < 10; i++ {
+		tick := &domain.Tick{
+			TickNumber: uint64(i + 1),
+			Timestamp:  time.Now(),
+			VDFProof: domain.VDFProof{
+				Input:      "input",
+				Output:     "output",
+				Proof:      "proof",
+				Iterations: 1000,
+			},
+			Transactions: []domain.Transaction{},
+			BatchHash:    "batch",
+			PrevOutput:   "prev",
+			ReceivedAt:   time.Now(),
 		}
-		done <- true
-	}()
+		ringBuffer.AddTick(tick)
+		time.Sleep(10 * time.Millisecond)
+	}
 
-	// Read all updates
-	receivedCount := 0
+	// Should receive a snapshot update (sent every 1 second)
 	ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var updateMsg WSMessage
+	if err := ws.ReadJSON(&updateMsg); err != nil {
+		t.Fatalf("Failed to read snapshot update: %v", err)
+	}
 
-	go func() {
-		for receivedCount < 10 {
-			var updateMsg WSMessage
-			if err := ws.ReadJSON(&updateMsg); err != nil {
-				break
-			}
-			if updateMsg.Type == "tick_update" {
-				receivedCount++
-			}
-		}
-	}()
+	if updateMsg.Type != "snapshot" {
+		t.Errorf("Expected message type 'snapshot', got '%s'", updateMsg.Type)
+	}
 
-	<-done
-	time.Sleep(500 * time.Millisecond)
+	// Verify snapshot contains multiple ticks
+	dataMap, ok := updateMsg.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected data to be map, got %T", updateMsg.Data)
+	}
 
-	if receivedCount != 10 {
-		t.Errorf("Expected to receive 10 tick updates, got %d", receivedCount)
+	ticks := dataMap["ticks"].([]interface{})
+	if len(ticks) != 10 {
+		t.Errorf("Expected 10 ticks in snapshot, got %d", len(ticks))
 	}
 }
 

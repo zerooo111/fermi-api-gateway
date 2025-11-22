@@ -161,6 +161,7 @@ func (h *WebSocketHandler) subscribeToUpdates() {
 
 	var lastTickNumber uint64
 	var ticksReceived uint64
+	var lastBroadcastTime time.Time
 
 	for {
 		select {
@@ -168,10 +169,25 @@ func (h *WebSocketHandler) subscribeToUpdates() {
 			// Just count ticks, don't broadcast yet
 			ticksReceived++
 
-		case <-ticker.C:
-			// Get current snapshot
+		case tickerTime := <-ticker.C:
+			broadcastStart := time.Now()
+
+			// Measure ticker accuracy
+			var tickerDelay time.Duration
+			if !lastBroadcastTime.IsZero() {
+				tickerDelay = broadcastStart.Sub(lastBroadcastTime)
+			}
+
+			// Measure snapshot retrieval
+			snapshotStart := time.Now()
 			ticks, transactions := h.ringBuffer.GetSnapshot()
+			snapshotDuration := time.Since(snapshotStart)
+
 			if len(ticks) == 0 {
+				h.logger.Debug("Empty buffer, skipping broadcast",
+					zap.Duration("since_last_broadcast", tickerDelay),
+				)
+				lastBroadcastTime = broadcastStart
 				continue
 			}
 
@@ -179,7 +195,8 @@ func (h *WebSocketHandler) subscribeToUpdates() {
 
 			// Only broadcast if we have new data
 			if latestTick.TickNumber > lastTickNumber {
-				// Create full snapshot message
+				// Measure message creation
+				msgCreateStart := time.Now()
 				msg := WSMessage{
 					Type: "snapshot",
 					Data: StreamSnapshot{
@@ -189,30 +206,58 @@ func (h *WebSocketHandler) subscribeToUpdates() {
 					},
 					Timestamp: time.Now().Format(time.RFC3339Nano),
 				}
+				msgCreateDuration := time.Since(msgCreateStart)
 
-				// Send to all clients
+				// Measure broadcast to clients
+				broadcastClientsStart := time.Now()
 				h.clientsMu.RLock()
 				clientCount := len(h.clients)
+				droppedCount := 0
 				for _, client := range h.clients {
 					select {
 					case client.send <- msg:
 					default:
+						droppedCount++
 						h.logger.Warn("Client send buffer full, dropping snapshot")
 					}
 				}
 				h.clientsMu.RUnlock()
+				broadcastClientsDuration := time.Since(broadcastClientsStart)
 
-				h.logger.Debug("Broadcast snapshot update",
+				// Total duration
+				totalDuration := time.Since(broadcastStart)
+
+				// Log performance metrics
+				h.logger.Info("Broadcast performance",
 					zap.Uint64("latest_tick", latestTick.TickNumber),
 					zap.Int("ticks_in_buffer", len(ticks)),
 					zap.Int("txs_in_buffer", len(transactions)),
 					zap.Int("connected_clients", clientCount),
+					zap.Int("dropped_clients", droppedCount),
 					zap.Uint64("ticks_received_since_last", ticksReceived),
+					// Timing metrics
+					zap.Duration("interval_since_last", tickerDelay),
+					zap.Duration("snapshot_duration", snapshotDuration),
+					zap.Duration("msg_create_duration", msgCreateDuration),
+					zap.Duration("broadcast_clients_duration", broadcastClientsDuration),
+					zap.Duration("total_duration", totalDuration),
+					// Ticker accuracy
+					zap.Time("ticker_time", tickerTime),
+					zap.Time("actual_time", broadcastStart),
+					zap.Duration("ticker_drift", broadcastStart.Sub(tickerTime)),
 				)
 
 				lastTickNumber = latestTick.TickNumber
 				ticksReceived = 0
+			} else {
+				// No new data
+				h.logger.Debug("No new data, skipping broadcast",
+					zap.Uint64("latest_tick", latestTick.TickNumber),
+					zap.Duration("since_last_broadcast", tickerDelay),
+				)
 			}
+
+			lastBroadcastTime = broadcastStart
 		}
 	}
 }
