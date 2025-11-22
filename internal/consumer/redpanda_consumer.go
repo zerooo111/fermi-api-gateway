@@ -29,23 +29,23 @@ type TickConsumer struct {
 func NewTickConsumer(cfg *config.RedpandaConfig, ringBuffer *stream.RingBuffer, logger *zap.Logger) (*TickConsumer, error) {
 	// Build client options
 	// NOTE: We use a unique consumer group per instance + timestamp to ensure
-	// we always start from the latest message, not from where we left off.
-	// This is important for a real-time explorer that should always show current data.
+	// we always start from the beginning to backfill recent history.
+	// This provides immediate data on startup for the real-time explorer.
 	consumerGroup := fmt.Sprintf("fermi-api-gateway-explorer-%d", time.Now().Unix())
 
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumeTopics(cfg.TicksTopic),
 		kgo.ConsumerGroup(consumerGroup),
-		kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()), // Start from latest for real-time explorer
-		kgo.FetchMaxBytes(10 * 1024 * 1024),             // 10MB batch for high throughput
-		kgo.FetchMaxWait(100 * time.Millisecond),        // Low latency for real-time
-		kgo.FetchMinBytes(1),                            // Don't wait for data to accumulate
-		kgo.RequestRetries(3),                           // Retry failed requests
-		kgo.RequestTimeoutOverhead(5 * time.Second),     // Request timeout
-		kgo.SessionTimeout(30 * time.Second),            // Consumer group session timeout
-		kgo.RebalanceTimeout(60 * time.Second),          // Rebalance timeout
-		kgo.DisableAutoCommit(),                         // Manual offset commits for better control
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()), // Start from beginning to backfill buffer
+		kgo.FetchMaxBytes(10 * 1024 * 1024),               // 10MB batch for high throughput
+		kgo.FetchMaxWait(100 * time.Millisecond),          // Low latency for real-time
+		kgo.FetchMinBytes(1),                              // Don't wait for data to accumulate
+		kgo.RequestRetries(3),                             // Retry failed requests
+		kgo.RequestTimeoutOverhead(5 * time.Second),       // Request timeout
+		kgo.SessionTimeout(30 * time.Second),              // Consumer group session timeout
+		kgo.RebalanceTimeout(60 * time.Second),            // Rebalance timeout
+		kgo.DisableAutoCommit(),                           // Manual offset commits for better control
 	}
 
 	// Initialize TLS
@@ -74,7 +74,7 @@ func NewTickConsumer(cfg *config.RedpandaConfig, ringBuffer *stream.RingBuffer, 
 
 // Start begins consuming messages from Kafka
 func (tc *TickConsumer) Start(ctx context.Context) error {
-	tc.logger.Info("Starting Kafka tick consumer (always reading from latest offset)",
+	tc.logger.Info("Starting Kafka tick consumer (reading from beginning to backfill buffer)",
 		zap.Strings("brokers", tc.cfg.Brokers),
 		zap.String("topic", tc.cfg.TicksTopic),
 	)
