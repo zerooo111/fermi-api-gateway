@@ -241,49 +241,25 @@
             document.getElementById('messageCount').textContent = messageCount;
             document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
 
+            // All messages are now snapshots (sent every 1 second)
             if (message.type === 'snapshot') {
                 handleSnapshot(message.data);
-            } else if (message.type === 'tick_update') {
-                handleTickUpdate(message.data);
             }
         }
 
         function handleSnapshot(data) {
-            console.log('Snapshot received - Ticks:', data.ticks.length, 'Transactions:', data.transactions.length);
+            const wasEmpty = allTicks.length === 0;
 
             allTicks = data.ticks || [];
             allTransactions = data.transactions || [];
 
+            if (wasEmpty && allTicks.length > 0) {
+                console.log('First data received - Ticks:', allTicks.length, 'Transactions:', allTransactions.length);
+            }
+
             updateStats();
             renderTicks();
             renderTransactions();
-        }
-
-        function handleTickUpdate(data) {
-            const tick = data.tick;
-            console.log('Tick update received:', tick.tick_number, 'Transactions:', tick.transactions.length);
-
-            // Add new tick to the beginning (newest first)
-            allTicks.push(tick);
-
-            // Keep only latest 100 ticks
-            if (allTicks.length > 100) {
-                allTicks.shift();
-            }
-
-            // Add tick's transactions
-            if (tick.transactions && tick.transactions.length > 0) {
-                allTransactions.push(...tick.transactions);
-
-                // Keep only latest 100 transactions
-                if (allTransactions.length > 100) {
-                    allTransactions.splice(0, allTransactions.length - 100);
-                }
-            }
-
-            updateStats();
-            renderTicks(true);
-            renderTransactions(true);
         }
 
         function updateStats() {
@@ -296,12 +272,12 @@
             }
         }
 
-        function renderTicks(isUpdate = false) {
+        function renderTicks() {
             const ticksList = document.getElementById('ticksList');
             const displayTicks = allTicks.slice(-100).reverse();
 
-            ticksList.innerHTML = displayTicks.map((tick, index) => `
-                <div class="tick-item ${isUpdate && index === 0 ? 'new' : ''}">
+            ticksList.innerHTML = displayTicks.map((tick) => `
+                <div class="tick-item">
                     <div><span class="tick-number">Tick #${tick.tick_number.toLocaleString()}</span></div>
                     <div class="timestamp">${new Date(tick.timestamp).toLocaleTimeString()}</div>
                     <div>Transactions: ${tick.transactions.length}</div>
@@ -310,12 +286,12 @@
             `).join('');
         }
 
-        function renderTransactions(isUpdate = false) {
+        function renderTransactions() {
             const txList = document.getElementById('txList');
             const displayTxs = allTransactions.slice(-100).reverse();
 
-            txList.innerHTML = displayTxs.map((tx, index) => `
-                <div class="tx-item ${isUpdate && index === 0 ? 'new' : ''}">
+            txList.innerHTML = displayTxs.map((tx) => `
+                <div class="tx-item">
                     <div><span class="tx-hash">TX ${tx.tx_hash.substring(0, 16)}...</span></div>
                     <div class="timestamp">${new Date(tx.client_timestamp).toLocaleTimeString()}</div>
                     <div>Seq: ${tx.sequence_number} | Nonce: ${tx.nonce}</div>

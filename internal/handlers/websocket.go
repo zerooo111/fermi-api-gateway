@@ -64,13 +64,10 @@ func NewWebSocketHandler(ringBuffer *stream.RingBuffer, cfg *config.StreamConfig
 		cfg:        cfg,
 		logger:     logger,
 		clients:    make(map[*websocket.Conn]*wsClient),
-		broadcast:  make(chan *domain.Tick, 100),
+		broadcast:  make(chan *domain.Tick, 100), // Not used anymore but keep for now
 	}
 
-	// Start broadcast goroutine
-	go handler.broadcastLoop()
-
-	// Subscribe to ring buffer updates
+	// Subscribe to ring buffer updates and broadcast every 1 second
 	go handler.subscribeToUpdates()
 
 	return handler
@@ -103,7 +100,7 @@ func (h *WebSocketHandler) HandleLiveStream(w http.ResponseWriter, r *http.Reque
 		zap.Int("total_clients", h.ClientCount()),
 	)
 
-	// Send initial snapshot
+	// Send initial snapshot (may be empty if we just started)
 	ticks, transactions := h.ringBuffer.GetSnapshot()
 	snapshot := StreamSnapshot{
 		Ticks:        ticks,
@@ -123,11 +120,17 @@ func (h *WebSocketHandler) HandleLiveStream(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	h.logger.Info("Sent initial snapshot to client",
-		zap.String("remote_addr", r.RemoteAddr),
-		zap.Int("ticks", len(ticks)),
-		zap.Int("transactions", len(transactions)),
-	)
+	if len(ticks) == 0 {
+		h.logger.Info("Sent empty initial snapshot to client (waiting for first tick)",
+			zap.String("remote_addr", r.RemoteAddr),
+		)
+	} else {
+		h.logger.Info("Sent initial snapshot to client",
+			zap.String("remote_addr", r.RemoteAddr),
+			zap.Int("ticks", len(ticks)),
+			zap.Int("transactions", len(transactions)),
+		)
+	}
 
 	// Start goroutines for this client
 	ctx, cancel := context.WithCancel(r.Context())
@@ -147,33 +150,68 @@ func (h *WebSocketHandler) HandleLiveStream(w http.ResponseWriter, r *http.Reque
 	)
 }
 
-// subscribeToUpdates subscribes to ring buffer updates and broadcasts new ticks
+// subscribeToUpdates subscribes to ring buffer updates and broadcasts snapshots every second
 func (h *WebSocketHandler) subscribeToUpdates() {
 	updateChan := h.ringBuffer.Subscribe()
 	defer h.ringBuffer.Unsubscribe(updateChan)
 
+	// Ticker to send updates every 1 second
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
 	var lastTickNumber uint64
+	var ticksReceived uint64
 
-	for range updateChan {
-		// Get latest tick
-		ticks, _ := h.ringBuffer.GetSnapshot()
-		if len(ticks) == 0 {
-			continue
-		}
+	for {
+		select {
+		case <-updateChan:
+			// Just count ticks, don't broadcast yet
+			ticksReceived++
 
-		latestTick := ticks[len(ticks)-1]
+		case <-ticker.C:
+			// Get current snapshot
+			ticks, transactions := h.ringBuffer.GetSnapshot()
+			if len(ticks) == 0 {
+				continue
+			}
 
-		// Only broadcast if it's a new tick
-		if latestTick.TickNumber > lastTickNumber {
-			lastTickNumber = latestTick.TickNumber
+			latestTick := ticks[len(ticks)-1]
 
-			// Send to broadcast channel (non-blocking)
-			select {
-			case h.broadcast <- latestTick:
-			default:
-				h.logger.Warn("Broadcast channel full, dropping tick",
-					zap.Uint64("tick_number", latestTick.TickNumber),
+			// Only broadcast if we have new data
+			if latestTick.TickNumber > lastTickNumber {
+				// Create full snapshot message
+				msg := WSMessage{
+					Type: "snapshot",
+					Data: StreamSnapshot{
+						Ticks:        ticks,
+						Transactions: transactions,
+						Timestamp:    time.Now().Format(time.RFC3339Nano),
+					},
+					Timestamp: time.Now().Format(time.RFC3339Nano),
+				}
+
+				// Send to all clients
+				h.clientsMu.RLock()
+				clientCount := len(h.clients)
+				for _, client := range h.clients {
+					select {
+					case client.send <- msg:
+					default:
+						h.logger.Warn("Client send buffer full, dropping snapshot")
+					}
+				}
+				h.clientsMu.RUnlock()
+
+				h.logger.Debug("Broadcast snapshot update",
+					zap.Uint64("latest_tick", latestTick.TickNumber),
+					zap.Int("ticks_in_buffer", len(ticks)),
+					zap.Int("txs_in_buffer", len(transactions)),
+					zap.Int("connected_clients", clientCount),
+					zap.Uint64("ticks_received_since_last", ticksReceived),
 				)
+
+				lastTickNumber = latestTick.TickNumber
+				ticksReceived = 0
 			}
 		}
 	}
