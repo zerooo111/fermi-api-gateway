@@ -29,9 +29,9 @@ type CORSConfig struct {
 
 // BackendConfig holds backend service URLs
 type BackendConfig struct {
-	RollupURL         string
-	ContinuumGrpcURL  string
-	ContinuumRestURL  string
+	RollupURL        string
+	ContinuumGrpcURL string
+	ContinuumRestURL string
 }
 
 // DatabaseConfig holds database connection configuration
@@ -53,16 +53,16 @@ type RateLimitConfig struct {
 
 // RedpandaConfig holds Kafka/Redpanda connection configuration
 type RedpandaConfig struct {
-	Brokers             []string
-	SASLUsername        string
-	SASLPassword        string
-	SASLMechanism       string
-	TicksTopic          string
-	TransactionsTopic   string
-	BufferSize          int
-	BatchSize           int
-	LingerMS            int
-	Compression         string
+	Brokers           []string
+	SASLUsername      string
+	SASLPassword      string
+	SASLMechanism     string
+	TicksTopic        string
+	TransactionsTopic string
+	BufferSize        int
+	BatchSize         int
+	LingerMS          int
+	Compression       string
 }
 
 // StreamConfig holds SSE streaming configuration
@@ -112,7 +112,7 @@ func Load() *Config {
 			Compression:       getEnv("KAFKA_COMPRESSION", "none"),
 		},
 		Stream: StreamConfig{
-			BufferSize: getEnvInt("STREAM_BUFFER_SIZE", 50),
+			BufferSize: getEnvInt("STREAM_BUFFER_SIZE", 100),
 			UpdateFPS:  getEnvInt("STREAM_UPDATE_FPS", 60),
 		},
 	}

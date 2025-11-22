@@ -102,17 +102,17 @@ func main() {
 	}()
 	logger.Info("Kafka consumer started", zap.Strings("brokers", cfg.Redpanda.Brokers))
 
-	// Initialize SSE handler
-	sseHandler := handlers.NewSSEHandler(ringBuffer, &cfg.Stream, logger)
+	// Initialize WebSocket handler
+	wsHandler := handlers.NewWebSocketHandler(ringBuffer, &cfg.Stream, logger)
 
 	// Create router
 	r := chi.NewRouter()
 
 	// Apply global middleware (order matters!)
-	r.Use(middleware.RequestID)                    // Generate request IDs first
-	r.Use(middleware.Recovery(logger))             // Recover from panics
-	r.Use(middleware.Logging(logger))              // Log all requests
-	r.Use(middleware.Metrics(m))                   // Record metrics
+	r.Use(middleware.RequestID)                     // Generate request IDs first
+	r.Use(middleware.Recovery(logger))              // Recover from panics
+	r.Use(middleware.Logging(logger))               // Log all requests
+	r.Use(middleware.Metrics(m))                    // Record metrics
 	r.Use(middleware.CORS(cfg.CORS.AllowedOrigins)) // Handle CORS
 
 	// Metrics endpoint (no auth for now)
@@ -124,8 +124,8 @@ func main() {
 
 	// API v1 routes - clean, versioned endpoints
 	r.Route("/api/v1", func(r chi.Router) {
-		// SSE streaming endpoint (no rate limiting - it's self-throttled to configured FPS)
-		r.Get("/stream/live", sseHandler.HandleLiveStream)
+		// WebSocket streaming endpoint (no rate limiting - connection-based backpressure)
+		r.Get("/stream/live", wsHandler.HandleLiveStream)
 
 		// Rollup API - 1000 req/min = ~16.67 req/sec
 		rollupLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.RollupRPM)/60, cfg.RateLimit.RollupRPM)
@@ -222,6 +222,10 @@ func main() {
 		} else {
 			logger.Info("Kafka consumer closed")
 		}
+
+		// Close WebSocket handler (disconnect all clients gracefully)
+		wsHandler.Close()
+		logger.Info("WebSocket handler closed")
 
 		// Attempt graceful shutdown
 		if err := srv.Shutdown(ctx); err != nil {

@@ -31,7 +31,18 @@ func NewTickConsumer(cfg *config.RedpandaConfig, ringBuffer *stream.RingBuffer, 
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumeTopics(cfg.TicksTopic),
-		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()), // Start from beginning
+		kgo.ConsumerGroup("fermi-api-gateway-explorer"),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()), // Start from latest for real-time explorer
+		kgo.FetchMaxBytes(10 * 1024 * 1024),             // 10MB batch for high throughput
+		kgo.FetchMaxWait(100 * time.Millisecond),        // Low latency for real-time
+		kgo.FetchMinBytes(1),                            // Don't wait for data to accumulate
+		kgo.RequestRetries(3),                           // Retry failed requests
+		kgo.RequestTimeoutOverhead(5 * time.Second),     // Request timeout
+		kgo.SessionTimeout(30 * time.Second),            // Consumer group session timeout
+		kgo.RebalanceTimeout(60 * time.Second),          // Rebalance timeout
+		kgo.DisableAutoCommit(),                         // Manual offset commits for better control
+		kgo.AutoCommitInterval(1 * time.Second),         // Commit offsets every second
+		kgo.RequireStableFetchOffsets(),                 // Only fetch committed offsets
 	}
 
 	// Initialize TLS
@@ -63,9 +74,15 @@ func (tc *TickConsumer) Start(ctx context.Context) error {
 	tc.logger.Info("Starting Kafka tick consumer",
 		zap.Strings("brokers", tc.cfg.Brokers),
 		zap.String("topic", tc.cfg.TicksTopic),
+		zap.String("consumer_group", "fermi-api-gateway-explorer"),
 	)
 
-	messagesProcessed := 0
+	var (
+		messagesProcessed uint64
+		batchCount        uint64
+		lastLogTime       = time.Now()
+		ticksPerSecond    uint64
+	)
 
 	for {
 		select {
@@ -74,21 +91,29 @@ func (tc *TickConsumer) Start(ctx context.Context) error {
 			tc.client.Close()
 			return nil
 		default:
-			// Poll for messages
+			// Poll for messages (non-blocking with context)
 			fetches := tc.client.PollFetches(ctx)
 			if errs := fetches.Errors(); len(errs) > 0 {
 				for _, err := range errs {
-					tc.logger.Error("Kafka fetch error", zap.Error(err.Err))
+					tc.logger.Error("Kafka fetch error",
+						zap.Error(err.Err),
+						zap.String("topic", err.Topic),
+						zap.Int32("partition", err.Partition),
+					)
 				}
-				time.Sleep(1 * time.Second)
+				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 
-			// Process fetched records
+			// Process fetched records in batch
+			batchSize := 0
 			iter := fetches.RecordIter()
+
 			for !iter.Done() {
 				record := iter.Next()
+				batchSize++
 				messagesProcessed++
+				ticksPerSecond++
 
 				// Parse protobuf message
 				var pbTick pb.Tick
@@ -96,6 +121,7 @@ func (tc *TickConsumer) Start(ctx context.Context) error {
 					tc.logger.Error("Failed to unmarshal protobuf tick",
 						zap.Error(err),
 						zap.Int64("offset", record.Offset),
+						zap.Int32("partition", record.Partition),
 					)
 					continue
 				}
@@ -110,19 +136,30 @@ func (tc *TickConsumer) Start(ctx context.Context) error {
 					continue
 				}
 
-				// Add to ring buffer
+				// Add to ring buffer (thread-safe)
 				tc.ringBuffer.AddTick(tick)
+			}
 
-				// Log stats every 1000 ticks
-				if tick.TickNumber%1000 == 0 {
-					tickCount, txCount := tc.ringBuffer.Stats()
-					tc.logger.Info("Ring buffer stats",
-						zap.Uint64("latest_tick", tick.TickNumber),
-						zap.Int("buffer_ticks", tickCount),
-						zap.Int("buffer_txs", txCount),
-						zap.Int("total_processed", messagesProcessed),
-					)
+			// Commit offsets after processing batch
+			if batchSize > 0 {
+				batchCount++
+				if err := tc.client.CommitUncommittedOffsets(ctx); err != nil {
+					tc.logger.Warn("Failed to commit offsets", zap.Error(err))
 				}
+			}
+
+			// Log throughput stats every second
+			if time.Since(lastLogTime) >= 1*time.Second {
+				tickCount, txCount := tc.ringBuffer.Stats()
+				tc.logger.Info("Consumer throughput",
+					zap.Uint64("ticks_per_second", ticksPerSecond),
+					zap.Uint64("total_ticks_processed", messagesProcessed),
+					zap.Uint64("batches_processed", batchCount),
+					zap.Int("ring_buffer_ticks", tickCount),
+					zap.Int("ring_buffer_txs", txCount),
+				)
+				ticksPerSecond = 0
+				lastLogTime = time.Now()
 			}
 		}
 	}
