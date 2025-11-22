@@ -28,10 +28,15 @@ type TickConsumer struct {
 // NewTickConsumer creates a new Kafka consumer for ticks using franz-go
 func NewTickConsumer(cfg *config.RedpandaConfig, ringBuffer *stream.RingBuffer, logger *zap.Logger) (*TickConsumer, error) {
 	// Build client options
+	// NOTE: We use a unique consumer group per instance + timestamp to ensure
+	// we always start from the latest message, not from where we left off.
+	// This is important for a real-time explorer that should always show current data.
+	consumerGroup := fmt.Sprintf("fermi-api-gateway-explorer-%d", time.Now().Unix())
+
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumeTopics(cfg.TicksTopic),
-		kgo.ConsumerGroup("fermi-api-gateway-explorer"),
+		kgo.ConsumerGroup(consumerGroup),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()), // Start from latest for real-time explorer
 		kgo.FetchMaxBytes(10 * 1024 * 1024),             // 10MB batch for high throughput
 		kgo.FetchMaxWait(100 * time.Millisecond),        // Low latency for real-time
@@ -41,8 +46,6 @@ func NewTickConsumer(cfg *config.RedpandaConfig, ringBuffer *stream.RingBuffer, 
 		kgo.SessionTimeout(30 * time.Second),            // Consumer group session timeout
 		kgo.RebalanceTimeout(60 * time.Second),          // Rebalance timeout
 		kgo.DisableAutoCommit(),                         // Manual offset commits for better control
-		kgo.AutoCommitInterval(1 * time.Second),         // Commit offsets every second
-		kgo.RequireStableFetchOffsets(),                 // Only fetch committed offsets
 	}
 
 	// Initialize TLS
@@ -71,10 +74,9 @@ func NewTickConsumer(cfg *config.RedpandaConfig, ringBuffer *stream.RingBuffer, 
 
 // Start begins consuming messages from Kafka
 func (tc *TickConsumer) Start(ctx context.Context) error {
-	tc.logger.Info("Starting Kafka tick consumer",
+	tc.logger.Info("Starting Kafka tick consumer (always reading from latest offset)",
 		zap.Strings("brokers", tc.cfg.Brokers),
 		zap.String("topic", tc.cfg.TicksTopic),
-		zap.String("consumer_group", "fermi-api-gateway-explorer"),
 	)
 
 	var (
