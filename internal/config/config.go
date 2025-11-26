@@ -12,7 +12,6 @@ type Config struct {
 	Backend   BackendConfig
 	Database  DatabaseConfig
 	RateLimit RateLimitConfig
-	Stream    StreamConfig
 }
 
 // ServerConfig holds HTTP server configuration
@@ -50,12 +49,6 @@ type RateLimitConfig struct {
 	ContinuumRestRPM int
 }
 
-// StreamConfig holds SSE streaming configuration
-type StreamConfig struct {
-	BufferSize int // Number of recent ticks/transactions to keep
-	UpdateFPS  int // Frames per second for SSE updates
-}
-
 // Load reads configuration from environment variables
 func Load() *Config {
 	return &Config{
@@ -83,10 +76,6 @@ func Load() *Config {
 			RollupRPM:        getEnvInt("RATE_LIMIT_ROLLUP", 1000),
 			ContinuumGrpcRPM: getEnvInt("RATE_LIMIT_CONTINUUM_GRPC", 500),
 			ContinuumRestRPM: getEnvInt("RATE_LIMIT_CONTINUUM_REST", 2000),
-		},
-		Stream: StreamConfig{
-			BufferSize: getEnvInt("STREAM_BUFFER_SIZE", 100),
-			UpdateFPS:  getEnvInt("STREAM_UPDATE_FPS", 60),
 		},
 	}
 }

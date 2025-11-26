@@ -17,13 +17,11 @@ import (
 
 	"github.com/fermilabs/fermi-api-gateway/internal/config"
 	"github.com/fermilabs/fermi-api-gateway/internal/database"
-	"github.com/fermilabs/fermi-api-gateway/internal/handlers"
 	"github.com/fermilabs/fermi-api-gateway/internal/health"
 	"github.com/fermilabs/fermi-api-gateway/internal/metrics"
 	"github.com/fermilabs/fermi-api-gateway/internal/middleware"
 	"github.com/fermilabs/fermi-api-gateway/internal/proxy"
 	"github.com/fermilabs/fermi-api-gateway/internal/ratelimit"
-	"github.com/fermilabs/fermi-api-gateway/internal/stream"
 )
 
 func main() {
@@ -77,16 +75,6 @@ func main() {
 	}
 	defer continuumGrpcProxy.Close()
 
-	// Initialize ring buffer for SSE streaming
-	ringBuffer := stream.NewRingBuffer(cfg.Stream.BufferSize, cfg.Stream.BufferSize)
-	logger.Info("Ring buffer initialized",
-		zap.Int("tick_buffer_size", cfg.Stream.BufferSize),
-		zap.Int("tx_buffer_size", cfg.Stream.BufferSize),
-	)
-
-	// Initialize WebSocket handler
-	wsHandler := handlers.NewWebSocketHandler(ringBuffer, &cfg.Stream, logger)
-
 	// Create router
 	r := chi.NewRouter()
 
@@ -106,9 +94,6 @@ func main() {
 
 	// API v1 routes - clean, versioned endpoints
 	r.Route("/api/v1", func(r chi.Router) {
-		// WebSocket streaming endpoint (no rate limiting - connection-based backpressure)
-		r.Get("/stream/live", wsHandler.HandleLiveStream)
-
 		// Rollup API - 1000 req/min = ~16.67 req/sec
 		rollupLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.RollupRPM)/60, cfg.RateLimit.RollupRPM)
 		r.Route("/rollup", func(r chi.Router) {
@@ -196,10 +181,6 @@ func main() {
 		// Give outstanding requests a deadline for completion
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-
-		// Close WebSocket handler (disconnect all clients gracefully)
-		wsHandler.Close()
-		logger.Info("WebSocket handler closed")
 
 		// Attempt graceful shutdown
 		if err := srv.Shutdown(ctx); err != nil {
