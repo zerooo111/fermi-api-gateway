@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"os"
 
-	_ "github.com/lib/pq"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -58,4 +58,3 @@ func main() {
 
 	fmt.Println("Migration completed successfully!")
 }
-

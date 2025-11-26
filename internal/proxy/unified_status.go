@@ -18,21 +18,21 @@ type RESTStatusResponse struct {
 	LatestTick        uint64 `json:"latest_tick"`
 	Status            string `json:"status"`
 	Last60Seconds     struct {
-		TickCount           uint64  `json:"tick_count"`
-		MeanTickTimeMicros  float64 `json:"mean_tick_time_micros"`
-		TicksPerSecond      float64 `json:"ticks_per_second"`
+		TickCount          uint64  `json:"tick_count"`
+		MeanTickTimeMicros float64 `json:"mean_tick_time_micros"`
+		TicksPerSecond     float64 `json:"ticks_per_second"`
 	} `json:"last_60_seconds"`
 }
 
 // UnifiedStatusResponse represents the merged status from REST + gRPC
 type UnifiedStatusResponse struct {
-	ChainHeight       uint64  `json:"chain_height"`        // From REST
-	TotalTransactions uint64  `json:"total_transactions"`  // From gRPC (lifetime)
-	Status            string  `json:"status"`              // From REST ("running")
-	UptimeSeconds     uint64  `json:"uptime_seconds"`      // From gRPC
-	TxnPerSecond      float64 `json:"txn_per_second"`      // Calculated: REST.total_transactions / 60
-	TicksPerSecond    float64 `json:"ticks_per_second"`    // From REST.last_60_seconds
-	AverageTickTime   float64 `json:"average_tick_time"`   // From REST.last_60_seconds (microseconds)
+	ChainHeight       uint64  `json:"chain_height"`       // From REST
+	TotalTransactions uint64  `json:"total_transactions"` // From gRPC (lifetime)
+	Status            string  `json:"status"`             // From REST ("running")
+	UptimeSeconds     uint64  `json:"uptime_seconds"`     // From gRPC
+	TxnPerSecond      float64 `json:"txn_per_second"`     // Calculated: REST.total_transactions / 60
+	TicksPerSecond    float64 `json:"ticks_per_second"`   // From REST.last_60_seconds
+	AverageTickTime   float64 `json:"average_tick_time"`  // From REST.last_60_seconds (microseconds)
 }
 
 // HandleUnifiedStatus creates a unified status endpoint that merges REST status and gRPC GetStatus

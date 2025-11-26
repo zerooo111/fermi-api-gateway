@@ -14,14 +14,14 @@ import (
 // Pipeline orchestrates the tick ingestion process:
 // StreamReader → Parser → Worker Pool → Batch Accumulator → Writer
 type Pipeline struct {
-	reader      StreamReader
-	parser      Parser
-	writer      Writer
-	logger      *zap.Logger
-	metrics     *Metrics
-	bufferSize  int
-	workerCount int
-	batchSize   int
+	reader        StreamReader
+	parser        Parser
+	writer        Writer
+	logger        *zap.Logger
+	metrics       *Metrics
+	bufferSize    int
+	workerCount   int
+	batchSize     int
 	flushInterval time.Duration
 
 	// Internal state

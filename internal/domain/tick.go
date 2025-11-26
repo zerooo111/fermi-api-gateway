@@ -20,9 +20,9 @@ type Tick struct {
 
 // VDFProof represents a Verifiable Delay Function proof.
 type VDFProof struct {
-	Input      string `json:"input"`       // hex-encoded
-	Output     string `json:"output"`      // hex-encoded
-	Proof      string `json:"proof"`       // hex-encoded
+	Input      string `json:"input"`  // hex-encoded
+	Output     string `json:"output"` // hex-encoded
+	Proof      string `json:"proof"`  // hex-encoded
 	Iterations uint64 `json:"iterations"`
 }
 

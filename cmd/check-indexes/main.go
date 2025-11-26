@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	_ "github.com/lib/pq"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -60,4 +60,3 @@ func main() {
 		fmt.Printf("\nTotal indexes: %d\n", count)
 	}
 }
-

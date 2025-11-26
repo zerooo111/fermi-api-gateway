@@ -16,7 +16,7 @@ func Recovery(logger *zap.Logger) func(http.Handler) http.Handler {
 			defer func() {
 				if err := recover(); err != nil {
 					stack := string(debug.Stack())
-					
+
 					// Parse stack trace to get first few relevant lines
 					stackLines := strings.Split(stack, "\n")
 					var relevantStack []string
@@ -24,7 +24,7 @@ func Recovery(logger *zap.Logger) func(http.Handler) http.Handler {
 					if len(stackLines) > 1 {
 						relevantStack = append(relevantStack, stackLines[1])
 					}
-					
+
 					// Include only first 10 lines of stack trace
 					maxStackLines := 10
 					for i := 4; i < len(stackLines) && i < 4+maxStackLines; i++ {
@@ -32,9 +32,9 @@ func Recovery(logger *zap.Logger) func(http.Handler) http.Handler {
 							relevantStack = append(relevantStack, stackLines[i])
 						}
 					}
-					
+
 					stackSummary := strings.Join(relevantStack, "\n")
-					
+
 					// Log with structured logging
 					fields := []zap.Field{
 						zap.String("method", r.Method),
@@ -43,11 +43,11 @@ func Recovery(logger *zap.Logger) func(http.Handler) http.Handler {
 						zap.String("panic", toString(err)),
 						zap.String("stack", stackSummary),
 					}
-					
+
 					if requestID := r.Header.Get("X-Request-ID"); requestID != "" {
 						fields = append(fields, zap.String("request_id", requestID))
 					}
-					
+
 					logger.Error("PANIC recovered", fields...)
 
 					// Set content type to JSON

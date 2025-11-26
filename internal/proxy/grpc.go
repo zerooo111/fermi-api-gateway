@@ -76,8 +76,8 @@ func (p *GRPCProxy) Close() error {
 // It allows JSON to unmarshal arrays directly into []byte (like GIN does)
 type transactionRequest struct {
 	TxID      string      `json:"tx_id"`
-	Payload   interface{} `json:"payload"`   // Can be array [70,82,77,...] or base64 string
-	Signature string      `json:"signature"` // Hex string (needs decoding)
+	Payload   interface{} `json:"payload"`    // Can be array [70,82,77,...] or base64 string
+	Signature string      `json:"signature"`  // Hex string (needs decoding)
 	PublicKey string      `json:"public_key"` // Base58 string (needs decoding)
 	Nonce     uint64      `json:"nonce"`
 	Timestamp interface{} `json:"timestamp"` // Can be string or number
@@ -196,7 +196,7 @@ func (p *GRPCProxy) HandleSubmitTransaction() http.HandlerFunc {
 		if len(bodyPreview) > 500 {
 			bodyPreview = bodyPreview[:500] + "... (truncated)"
 		}
-		p.logger.Debug("Received transaction submission request", 
+		p.logger.Debug("Received transaction submission request",
 			zap.String("body_preview", bodyPreview),
 			zap.Int("body_length", len(body)),
 			zap.String("content_type", r.Header.Get("Content-Type")))
@@ -214,7 +214,7 @@ func (p *GRPCProxy) HandleSubmitTransaction() http.HandlerFunc {
 			Transaction transactionRequest `json:"transaction"`
 		}
 		if err := json.Unmarshal(body, &bodyStruct); err != nil {
-			p.logger.Warn("Failed to unmarshal JSON request", 
+			p.logger.Warn("Failed to unmarshal JSON request",
 				zap.Error(err),
 				zap.String("body_preview", bodyPreview))
 			http.Error(w, fmt.Sprintf(`{"error":"invalid request body: %v"}`, err), http.StatusBadRequest)
@@ -224,7 +224,7 @@ func (p *GRPCProxy) HandleSubmitTransaction() http.HandlerFunc {
 		// Convert to protobuf transaction (like ToProtobuf() in GIN handler)
 		grpcTx, err := bodyStruct.Transaction.toProtobuf()
 		if err != nil {
-			p.logger.Warn("Failed to convert transaction to protobuf", 
+			p.logger.Warn("Failed to convert transaction to protobuf",
 				zap.Error(err),
 				zap.String("body_preview", bodyPreview))
 			http.Error(w, fmt.Sprintf(`{"error":"invalid transaction data: %v"}`, err), http.StatusBadRequest)

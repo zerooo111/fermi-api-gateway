@@ -18,11 +18,11 @@ type Config struct {
 	StartTick        uint64
 
 	// Database
-	DatabaseURL      string
-	MaxConnections   int
-	MinConnections   int
-	MaxConnLifetime  time.Duration
-	MaxConnIdleTime  time.Duration
+	DatabaseURL     string
+	MaxConnections  int
+	MinConnections  int
+	MaxConnLifetime time.Duration
+	MaxConnIdleTime time.Duration
 
 	// Pipeline
 	BufferSize    int

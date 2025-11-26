@@ -165,11 +165,11 @@ func (h *CandlesHandler) GetMarketCandles() http.HandlerFunc {
 			// Divide prices by 1M and round to 2 decimals for smaller response size
 			// This reduces JSON payload by ~20-33% and improves network transfer time
 			candleArrays[i] = []interface{}{
-				timestampMs,                                    // Open time (ms)
-				roundTo2Decimals(candle.Open / 1000000.0),   // Open price (USDC)
-				roundTo2Decimals(candle.High / 1000000.0),   // High price (USDC)
-				roundTo2Decimals(candle.Low / 1000000.0),    // Low price (USDC)
-				roundTo2Decimals(candle.Close / 1000000.0),  // Close price (USDC)
+				timestampMs, // Open time (ms)
+				roundTo2Decimals(candle.Open / 1000000.0),  // Open price (USDC)
+				roundTo2Decimals(candle.High / 1000000.0),  // High price (USDC)
+				roundTo2Decimals(candle.Low / 1000000.0),   // Low price (USDC)
+				roundTo2Decimals(candle.Close / 1000000.0), // Close price (USDC)
 			}
 		}
 
@@ -183,13 +183,13 @@ func (h *CandlesHandler) GetMarketCandles() http.HandlerFunc {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
 		w.Header().Set("X-Data-Source", "database")
-		
+
 		// Add header with latest candle timestamp for frontend to use in next 'since' request
 		if len(candles) > 0 {
 			lastCandleTimestamp := candles[len(candles)-1].Timestamp.UnixMilli()
 			w.Header().Set("X-Last-Candle-Timestamp", strconv.FormatInt(lastCandleTimestamp, 10))
 		}
-		
+
 		// Note: gzip compression should be handled by middleware or reverse proxy
 		// Setting it here without actual compression would break the response
 
@@ -214,4 +214,3 @@ func (h *CandlesHandler) writeErrorResponse(w http.ResponseWriter, statusCode in
 	}
 	json.NewEncoder(w).Encode(response)
 }
-
