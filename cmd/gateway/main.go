@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fermilabs/fermi-api-gateway/internal/config"
-	"github.com/fermilabs/fermi-api-gateway/internal/consumer"
 	"github.com/fermilabs/fermi-api-gateway/internal/database"
 	"github.com/fermilabs/fermi-api-gateway/internal/handlers"
 	"github.com/fermilabs/fermi-api-gateway/internal/health"
@@ -84,23 +83,6 @@ func main() {
 		zap.Int("tick_buffer_size", cfg.Stream.BufferSize),
 		zap.Int("tx_buffer_size", cfg.Stream.BufferSize),
 	)
-
-	// Initialize Kafka consumer for tick streaming
-	tickConsumer, err := consumer.NewTickConsumer(&cfg.Redpanda, ringBuffer, logger)
-	if err != nil {
-		logger.Fatal("Failed to initialize Kafka consumer", zap.Error(err))
-	}
-
-	// Start Kafka consumer in background
-	consumerCtx, consumerCancel := context.WithCancel(context.Background())
-	defer consumerCancel()
-
-	go func() {
-		if err := tickConsumer.Start(consumerCtx); err != nil {
-			logger.Error("Kafka consumer stopped with error", zap.Error(err))
-		}
-	}()
-	logger.Info("Kafka consumer started", zap.Strings("brokers", cfg.Redpanda.Brokers))
 
 	// Initialize WebSocket handler
 	wsHandler := handlers.NewWebSocketHandler(ringBuffer, &cfg.Stream, logger)
@@ -214,14 +196,6 @@ func main() {
 		// Give outstanding requests a deadline for completion
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-
-		// Stop Kafka consumer first
-		consumerCancel()
-		if err := tickConsumer.Close(); err != nil {
-			logger.Error("Error closing Kafka consumer", zap.Error(err))
-		} else {
-			logger.Info("Kafka consumer closed")
-		}
 
 		// Close WebSocket handler (disconnect all clients gracefully)
 		wsHandler.Close()

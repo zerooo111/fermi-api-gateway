@@ -12,7 +12,6 @@ type Config struct {
 	Backend   BackendConfig
 	Database  DatabaseConfig
 	RateLimit RateLimitConfig
-	Redpanda  RedpandaConfig
 	Stream    StreamConfig
 }
 
@@ -51,20 +50,6 @@ type RateLimitConfig struct {
 	ContinuumRestRPM int
 }
 
-// RedpandaConfig holds Kafka/Redpanda connection configuration
-type RedpandaConfig struct {
-	Brokers           []string
-	SASLUsername      string
-	SASLPassword      string
-	SASLMechanism     string
-	TicksTopic        string
-	TransactionsTopic string
-	BufferSize        int
-	BatchSize         int
-	LingerMS          int
-	Compression       string
-}
-
 // StreamConfig holds SSE streaming configuration
 type StreamConfig struct {
 	BufferSize int // Number of recent ticks/transactions to keep
@@ -98,18 +83,6 @@ func Load() *Config {
 			RollupRPM:        getEnvInt("RATE_LIMIT_ROLLUP", 1000),
 			ContinuumGrpcRPM: getEnvInt("RATE_LIMIT_CONTINUUM_GRPC", 500),
 			ContinuumRestRPM: getEnvInt("RATE_LIMIT_CONTINUUM_REST", 2000),
-		},
-		Redpanda: RedpandaConfig{
-			Brokers:           getEnvSlice("REDPANDA_BROKERS", []string{"localhost:9092"}),
-			SASLUsername:      getEnv("REDPANDA_SASL_USERNAME", ""),
-			SASLPassword:      getEnv("REDPANDA_SASL_PASSWORD", ""),
-			SASLMechanism:     getEnv("REDPANDA_SASL_MECHANISM", "SCRAM-SHA-256"),
-			TicksTopic:        getEnv("REDPANDA_TICKS_TOPIC", "ticks"),
-			TransactionsTopic: getEnv("REDPANDA_TRANSACTIONS_TOPIC", "transactions"),
-			BufferSize:        getEnvInt("KAFKA_BUFFER_SIZE", 500000),
-			BatchSize:         getEnvInt("KAFKA_BATCH_SIZE", 1048576),
-			LingerMS:          getEnvInt("KAFKA_LINGER_MS", 0),
-			Compression:       getEnv("KAFKA_COMPRESSION", "none"),
 		},
 		Stream: StreamConfig{
 			BufferSize: getEnvInt("STREAM_BUFFER_SIZE", 100),
