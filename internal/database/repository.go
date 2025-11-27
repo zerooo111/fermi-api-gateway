@@ -24,6 +24,26 @@ type Transaction struct {
 	Metadata           json.RawMessage `json:"metadata,omitempty"`
 }
 
+// VDFProof represents VDF proof data for a tick
+type VDFProof struct {
+	Input      string `json:"input"`
+	Output     string `json:"output"`
+	Proof      string `json:"proof"`
+	Iterations uint64 `json:"iterations"`
+}
+
+// Tick represents a tick from the Continuum sequencer
+type Tick struct {
+	TickNumber           uint64    `json:"tick_number"`
+	Timestamp            uint64    `json:"timestamp"`
+	Time                 time.Time `json:"time"`
+	VDFProof             *VDFProof `json:"vdf_proof,omitempty"`
+	TransactionCount     int       `json:"transaction_count"`
+	TransactionBatchHash string    `json:"transaction_batch_hash"`
+	PreviousOutput       string    `json:"previous_output,omitempty"`
+	IngestedAt           time.Time `json:"ingested_at"`
+}
+
 // OHLCCandle represents an OHLC (Open, High, Low, Close) candle
 type OHLCCandle struct {
 	Timestamp time.Time `json:"t"` // timestamp
@@ -130,6 +150,99 @@ func (r *Repository) GetRecentTransactions(ctx context.Context, limit int) ([]Tr
 	}
 
 	return transactions, nil
+}
+
+// GetTickByNumber retrieves a tick by its tick number, including VDF proof data
+func (r *Repository) GetTickByNumber(ctx context.Context, tickNumber uint64) (*Tick, error) {
+	query := `
+		SELECT
+			t.tick_number, t.timestamp, t.time,
+			t.vdf_input, t.vdf_output, t.vdf_proof, t.vdf_iterations,
+			t.transaction_count, t.transaction_batch_hash, t.previous_output,
+			t.ingested_at
+		FROM ticks t
+		WHERE t.tick_number = $1
+		ORDER BY t.time DESC
+		LIMIT 1
+	`
+
+	var tick Tick
+	var vdfInput, vdfOutput, vdfProof, previousOutput sql.NullString
+	var vdfIterations sql.NullInt64
+
+	err := r.db.QueryRowContext(ctx, query, tickNumber).Scan(
+		&tick.TickNumber,
+		&tick.Timestamp,
+		&tick.Time,
+		&vdfInput,
+		&vdfOutput,
+		&vdfProof,
+		&vdfIterations,
+		&tick.TransactionCount,
+		&tick.TransactionBatchHash,
+		&previousOutput,
+		&tick.IngestedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("tick not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+
+	// Populate VDF proof if available
+	if vdfInput.Valid && vdfOutput.Valid && vdfProof.Valid {
+		tick.VDFProof = &VDFProof{
+			Input:      vdfInput.String,
+			Output:     vdfOutput.String,
+			Proof:      vdfProof.String,
+			Iterations: uint64(vdfIterations.Int64),
+		}
+	}
+
+	if previousOutput.Valid {
+		tick.PreviousOutput = previousOutput.String
+	}
+
+	return &tick, nil
+}
+
+// GetTransactionByTxID retrieves a transaction by its tx_id field
+func (r *Repository) GetTransactionByTxID(ctx context.Context, txID string) (*Transaction, error) {
+	query := `
+		SELECT
+			tick_number, sequence_number, tx_hash, tx_id, nonce,
+			payload, timestamp_us, public_key, signature, ingestion_timestamp,
+			processed_at
+		FROM transactions
+		WHERE tx_id = $1
+		LIMIT 1
+	`
+
+	var tx Transaction
+	err := r.db.QueryRowContext(ctx, query, txID).Scan(
+		&tx.TickNumber,
+		&tx.SequenceNumber,
+		&tx.TxHash,
+		&tx.TxID,
+		&tx.Nonce,
+		&tx.Payload,
+		&tx.ClientTimestamp,
+		&tx.PublicKey,
+		&tx.Signature,
+		&tx.IngestionTimestamp,
+		&tx.CreatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("transaction not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+
+	return &tx, nil
 }
 
 // GetMarketCandles retrieves OHLC candles for a market within a time range

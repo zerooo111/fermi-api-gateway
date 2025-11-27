@@ -113,6 +113,17 @@ func main() {
 		r.Route("/continuum", func(r chi.Router) {
 			r.Use(ratelimit.Middleware(continuumLimiter))
 
+			// Initialize Continuum handler for database queries
+			continuumHandler := proxy.NewContinuumHandler(repo, logger)
+
+			// New database-backed endpoints
+			// GET /continuum/tick/{tickNumber} - returns tick with VDF proof
+			r.Get("/tick/{tickNumber}", continuumHandler.HandleGetTickByNumber())
+			// GET /continuum/txn/recent?limit=N - returns recent transactions
+			r.Get("/txn/recent", continuumHandler.HandleGetRecentTransactions())
+			// GET /continuum/txn/{txnId} - returns transaction by ID
+			r.Get("/txn/{txnId}", continuumHandler.HandleGetTransactionByID())
+
 			// Transaction endpoints (new - with database support)
 			r.Get("/tx/recent", continuumGrpcProxy.HandleGetRecentTransactions())
 			r.Handle("/tx/*", continuumGrpcProxy.HandleGetTransactionByHash())

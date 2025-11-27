@@ -274,7 +274,7 @@ func (r *GRPCReader) isRecoverableError(err error) bool {
 
 	// Recoverable status codes
 	switch st.Code() {
-	case codes.Unavailable,    // Server unavailable
+	case codes.Unavailable, // Server unavailable
 		codes.DeadlineExceeded, // Request timeout
 		codes.Canceled,         // Request canceled
 		codes.Aborted,          // Operation aborted
