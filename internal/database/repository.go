@@ -34,14 +34,15 @@ type VDFProof struct {
 
 // Tick represents a tick from the Continuum sequencer
 type Tick struct {
-	TickNumber           uint64    `json:"tick_number"`
-	Timestamp            uint64    `json:"timestamp"`
-	Time                 time.Time `json:"time"`
-	VDFProof             *VDFProof `json:"vdf_proof,omitempty"`
-	TransactionCount     int       `json:"transaction_count"`
-	TransactionBatchHash string    `json:"transaction_batch_hash"`
-	PreviousOutput       string    `json:"previous_output,omitempty"`
-	IngestedAt           time.Time `json:"ingested_at"`
+	TickNumber           uint64        `json:"tick_number"`
+	Timestamp            uint64        `json:"timestamp"`
+	Time                 time.Time     `json:"time"`
+	VDFProof             *VDFProof     `json:"vdf_proof,omitempty"`
+	TransactionCount     int           `json:"transaction_count"`
+	TransactionBatchHash string        `json:"transaction_batch_hash"`
+	PreviousOutput       string        `json:"previous_output,omitempty"`
+	IngestedAt           time.Time     `json:"ingested_at"`
+	Transactions         []Transaction `json:"transactions,omitempty"`
 }
 
 // OHLCCandle represents an OHLC (Open, High, Low, Close) candle
@@ -64,26 +65,46 @@ func NewRepository(db *DB) *Repository {
 }
 
 // GetTransaction retrieves a transaction by hash
+// Supports both full hash and 8-character short hash (prefix search)
 func (r *Repository) GetTransaction(ctx context.Context, txHash string) (*Transaction, error) {
-	query := `
-		SELECT
-			tick_number, sequence_number, tx_hash, tx_id, nonce,
-			payload, timestamp_us, public_key, signature, ingestion_timestamp,
-			processed_at
-		FROM transactions
-		WHERE tx_hash = $1
-		LIMIT 1
-	`
+	var query string
+	var arg interface{}
+
+	if len(txHash) == 8 {
+		// Short hash: search for transactions starting with this prefix
+		query = `
+			SELECT
+				tick_number, sequence_number, tx_hash, tx_id, nonce,
+				payload, timestamp, public_key, signature, ingestion_timestamp,
+				ingested_at
+			FROM transactions
+			WHERE tx_hash LIKE $1
+			LIMIT 1
+		`
+		arg = txHash + "%"
+	} else {
+		// Full hash: exact match
+		query = `
+			SELECT
+				tick_number, sequence_number, tx_hash, tx_id, nonce,
+				payload, timestamp, public_key, signature, ingestion_timestamp,
+				ingested_at
+			FROM transactions
+			WHERE tx_hash = $1
+			LIMIT 1
+		`
+		arg = txHash
+	}
 
 	var tx Transaction
-	err := r.db.QueryRowContext(ctx, query, txHash).Scan(
+	err := r.db.QueryRowContext(ctx, query, arg).Scan(
 		&tx.TickNumber,
 		&tx.SequenceNumber,
 		&tx.TxHash,
 		&tx.TxID,
 		&tx.Nonce,
 		&tx.Payload,
-		&tx.ClientTimestamp,
+		&tx.ClientTimestamp, // timestamp stored as int64 (microseconds)
 		&tx.PublicKey,
 		&tx.Signature,
 		&tx.IngestionTimestamp,
@@ -105,10 +126,10 @@ func (r *Repository) GetRecentTransactions(ctx context.Context, limit int) ([]Tr
 	query := `
 		SELECT
 			tick_number, sequence_number, tx_hash, tx_id, nonce,
-			payload, timestamp_us, public_key, signature, ingestion_timestamp,
-			processed_at, payload_size, version
+			payload, timestamp, public_key, signature, ingestion_timestamp,
+			ingested_at
 		FROM transactions
-		ORDER BY processed_at DESC
+		ORDER BY sequence_number DESC
 		LIMIT $1
 	`
 
@@ -121,8 +142,6 @@ func (r *Repository) GetRecentTransactions(ctx context.Context, limit int) ([]Tr
 	var transactions []Transaction
 	for rows.Next() {
 		var tx Transaction
-		var payloadSize sql.NullInt64
-		var version sql.NullInt64
 
 		err := rows.Scan(
 			&tx.TickNumber,
@@ -131,13 +150,11 @@ func (r *Repository) GetRecentTransactions(ctx context.Context, limit int) ([]Tr
 			&tx.TxID,
 			&tx.Nonce,
 			&tx.Payload,
-			&tx.ClientTimestamp,
+			&tx.ClientTimestamp, // timestamp stored as int64 (microseconds)
 			&tx.PublicKey,
 			&tx.Signature,
 			&tx.IngestionTimestamp,
 			&tx.CreatedAt,
-			&payloadSize,
-			&version,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan failed: %w", err)
@@ -153,16 +170,16 @@ func (r *Repository) GetRecentTransactions(ctx context.Context, limit int) ([]Tr
 }
 
 // GetTickByNumber retrieves a tick by its tick number, including VDF proof data
+// Actual database schema: ticks(tick_number, timestamp_us, vdf_input, vdf_output, vdf_proof, vdf_iterations, transaction_batch_hash, previous_output, tx_count, processed_at, version)
 func (r *Repository) GetTickByNumber(ctx context.Context, tickNumber uint64) (*Tick, error) {
 	query := `
 		SELECT
-			t.tick_number, t.timestamp, t.time,
-			t.vdf_input, t.vdf_output, t.vdf_proof, t.vdf_iterations,
-			t.transaction_count, t.transaction_batch_hash, t.previous_output,
-			t.ingested_at
-		FROM ticks t
-		WHERE t.tick_number = $1
-		ORDER BY t.time DESC
+			tick_number, timestamp_us,
+			vdf_input, vdf_output, vdf_proof, vdf_iterations,
+			tx_count, transaction_batch_hash, previous_output,
+			processed_at
+		FROM ticks
+		WHERE tick_number = $1
 		LIMIT 1
 	`
 
@@ -172,8 +189,7 @@ func (r *Repository) GetTickByNumber(ctx context.Context, tickNumber uint64) (*T
 
 	err := r.db.QueryRowContext(ctx, query, tickNumber).Scan(
 		&tick.TickNumber,
-		&tick.Timestamp,
-		&tick.Time,
+		&tick.Timestamp, // timestamp_us is bigint, directly into uint64
 		&vdfInput,
 		&vdfOutput,
 		&vdfProof,
@@ -181,7 +197,7 @@ func (r *Repository) GetTickByNumber(ctx context.Context, tickNumber uint64) (*T
 		&tick.TransactionCount,
 		&tick.TransactionBatchHash,
 		&previousOutput,
-		&tick.IngestedAt,
+		&tick.IngestedAt, // processed_at -> IngestedAt
 	)
 
 	if err == sql.ErrNoRows {
@@ -190,6 +206,9 @@ func (r *Repository) GetTickByNumber(ctx context.Context, tickNumber uint64) (*T
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %w", err)
 	}
+
+	// Set Time from timestamp_us (microseconds to time.Time)
+	tick.Time = time.UnixMicro(int64(tick.Timestamp))
 
 	// Populate VDF proof if available
 	if vdfInput.Valid && vdfOutput.Valid && vdfProof.Valid {
@@ -205,7 +224,131 @@ func (r *Repository) GetTickByNumber(ctx context.Context, tickNumber uint64) (*T
 		tick.PreviousOutput = previousOutput.String
 	}
 
+	// Fetch transactions for this tick
+	if tick.TransactionCount > 0 {
+		txns, err := r.GetTransactionsByTickNumber(ctx, tickNumber)
+		if err == nil {
+			tick.Transactions = txns
+		}
+		// If fetching transactions fails, we still return the tick without transactions
+	}
+
 	return &tick, nil
+}
+
+// GetRecentTicks retrieves the most recent ticks in descending order by tick number
+func (r *Repository) GetRecentTicks(ctx context.Context, limit int) ([]Tick, error) {
+	query := `
+		SELECT
+			tick_number, timestamp_us,
+			vdf_input, vdf_output, vdf_proof, vdf_iterations,
+			tx_count, transaction_batch_hash, previous_output,
+			processed_at
+		FROM ticks
+		ORDER BY tick_number DESC
+		LIMIT $1
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	var ticks []Tick
+	for rows.Next() {
+		var tick Tick
+		var vdfInput, vdfOutput, vdfProof, previousOutput sql.NullString
+		var vdfIterations sql.NullInt64
+
+		err := rows.Scan(
+			&tick.TickNumber,
+			&tick.Timestamp,
+			&vdfInput,
+			&vdfOutput,
+			&vdfProof,
+			&vdfIterations,
+			&tick.TransactionCount,
+			&tick.TransactionBatchHash,
+			&previousOutput,
+			&tick.IngestedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan failed: %w", err)
+		}
+
+		// Set Time from timestamp_us
+		tick.Time = time.UnixMicro(int64(tick.Timestamp))
+
+		// Populate VDF proof if available
+		if vdfInput.Valid && vdfOutput.Valid && vdfProof.Valid {
+			tick.VDFProof = &VDFProof{
+				Input:      vdfInput.String,
+				Output:     vdfOutput.String,
+				Proof:      vdfProof.String,
+				Iterations: uint64(vdfIterations.Int64),
+			}
+		}
+
+		if previousOutput.Valid {
+			tick.PreviousOutput = previousOutput.String
+		}
+
+		ticks = append(ticks, tick)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iteration failed: %w", err)
+	}
+
+	return ticks, nil
+}
+
+// GetTransactionsByTickNumber retrieves all transactions for a given tick number
+func (r *Repository) GetTransactionsByTickNumber(ctx context.Context, tickNumber uint64) ([]Transaction, error) {
+	query := `
+		SELECT
+			tick_number, sequence_number, tx_hash, tx_id, nonce,
+			payload, timestamp, public_key, signature, ingestion_timestamp,
+			ingested_at
+		FROM transactions
+		WHERE tick_number = $1
+		ORDER BY sequence_number ASC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, tickNumber)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	var transactions []Transaction
+	for rows.Next() {
+		var tx Transaction
+		err := rows.Scan(
+			&tx.TickNumber,
+			&tx.SequenceNumber,
+			&tx.TxHash,
+			&tx.TxID,
+			&tx.Nonce,
+			&tx.Payload,
+			&tx.ClientTimestamp,
+			&tx.PublicKey,
+			&tx.Signature,
+			&tx.IngestionTimestamp,
+			&tx.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan failed: %w", err)
+		}
+		transactions = append(transactions, tx)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iteration failed: %w", err)
+	}
+
+	return transactions, nil
 }
 
 // GetTransactionByTxID retrieves a transaction by its tx_id field
@@ -213,8 +356,8 @@ func (r *Repository) GetTransactionByTxID(ctx context.Context, txID string) (*Tr
 	query := `
 		SELECT
 			tick_number, sequence_number, tx_hash, tx_id, nonce,
-			payload, timestamp_us, public_key, signature, ingestion_timestamp,
-			processed_at
+			payload, timestamp, public_key, signature, ingestion_timestamp,
+			ingested_at
 		FROM transactions
 		WHERE tx_id = $1
 		LIMIT 1
@@ -228,7 +371,7 @@ func (r *Repository) GetTransactionByTxID(ctx context.Context, txID string) (*Tr
 		&tx.TxID,
 		&tx.Nonce,
 		&tx.Payload,
-		&tx.ClientTimestamp,
+		&tx.ClientTimestamp, // timestamp stored as int64 (microseconds)
 		&tx.PublicKey,
 		&tx.Signature,
 		&tx.IngestionTimestamp,

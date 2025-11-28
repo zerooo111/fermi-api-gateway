@@ -77,6 +77,51 @@ func (h *ContinuumHandler) HandleGetTickByNumber() http.HandlerFunc {
 	}
 }
 
+// HandleGetRecentTicks handles GET /api/v1/continuum/tick/recent?limit=N
+// Returns the most recent ticks in descending order by tick number
+func (h *ContinuumHandler) HandleGetRecentTicks() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Parse limit parameter
+		limitStr := r.URL.Query().Get("limit")
+		limit := 100 // default
+		if limitStr != "" {
+			parsedLimit, err := strconv.Atoi(limitStr)
+			if err != nil || parsedLimit < 1 {
+				h.writeError(w, "invalid limit: must be a positive integer", http.StatusBadRequest)
+				return
+			}
+			if parsedLimit > 1000 {
+				parsedLimit = 1000 // cap at 1000
+			}
+			limit = parsedLimit
+		}
+
+		// Check if repository is available
+		if h.repo == nil {
+			h.writeError(w, "database not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		ctx := r.Context()
+		ctx, cancel := withTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		ticks, err := h.repo.GetRecentTicks(ctx, limit)
+		if err != nil {
+			h.logger.Error("Failed to get recent ticks", zap.Int("limit", limit), zap.Error(err))
+			h.writeError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate") // Recent data shouldn't be cached
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ticks": ticks,
+			"count": len(ticks),
+		})
+	}
+}
+
 // HandleGetRecentTransactions handles GET /api/v1/continuum/txn/recent?limit=N
 // Returns the most recent transactions
 func (h *ContinuumHandler) HandleGetRecentTransactions() http.HandlerFunc {
