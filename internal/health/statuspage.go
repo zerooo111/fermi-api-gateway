@@ -32,12 +32,10 @@ const statusPageTemplate = `<!DOCTYPE html>
             max-width: 640px;
             margin: 0 auto;
             border: 1px solid #e5e5e5;
-            padding: 24px;
         }
 
         .header {
-            margin-bottom: 24px;
-            padding-bottom: 16px;
+            padding: 20px 24px;
             border-bottom: 1px solid #e5e5e5;
         }
 
@@ -48,8 +46,7 @@ const statusPageTemplate = `<!DOCTYPE html>
         }
 
         .overall-status {
-            padding: 20px 0;
-            margin-bottom: 24px;
+            padding: 20px 24px;
             border-bottom: 1px solid #e5e5e5;
         }
 
@@ -87,7 +84,11 @@ const statusPageTemplate = `<!DOCTYPE html>
         }
 
         .section {
-            margin-bottom: 24px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        .section:last-of-type {
+            border-bottom: none;
         }
 
         .section-title {
@@ -96,19 +97,19 @@ const statusPageTemplate = `<!DOCTYPE html>
             color: #999;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            margin-bottom: 8px;
+            padding: 16px 24px 8px;
         }
 
         .services {
-            border: 1px solid #e5e5e5;
+            padding: 0 24px 16px;
         }
 
         .service {
-            padding: 12px 16px;
+            padding: 10px 0;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-bottom: 1px solid #e5e5e5;
+            border-bottom: 1px solid #f0f0f0;
         }
 
         .service:last-child {
@@ -153,8 +154,7 @@ const statusPageTemplate = `<!DOCTYPE html>
         }
 
         .stats {
-            border: 1px solid #e5e5e5;
-            padding: 16px;
+            padding: 0 24px 16px;
         }
 
         .stats-grid {
@@ -183,8 +183,7 @@ const statusPageTemplate = `<!DOCTYPE html>
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-top: 24px;
-            padding-top: 16px;
+            padding: 16px 24px;
             border-top: 1px solid #e5e5e5;
         }
 
@@ -219,7 +218,7 @@ const statusPageTemplate = `<!DOCTYPE html>
 
         .footer {
             text-align: center;
-            margin-top: 32px;
+            margin-top: 24px;
             font-size: 0.7rem;
             color: #999;
         }
@@ -310,10 +309,10 @@ const statusPageTemplate = `<!DOCTYPE html>
             </label>
             <button class="refresh-btn" onclick="refresh()">Refresh</button>
         </div>
+    </div>
 
-        <div class="footer">
-            <a href="https://fermilabs.xyz">Fermi Labs</a>
-        </div>
+    <div class="footer">
+        <a href="https://fermilabs.xyz">Fermi Labs</a>
     </div>
 
     <script>
