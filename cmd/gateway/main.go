@@ -99,6 +99,7 @@ func main() {
 		DB:                 repo,
 	}
 	r.Get("/status", health.StatusHandler(statusDeps))
+	r.Get("/statuspage", health.StatusPageHandler(statusDeps))
 
 	// API v1 routes - clean, versioned endpoints
 	r.Route("/api/v1", func(r chi.Router) {
