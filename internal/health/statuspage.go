@@ -31,10 +31,12 @@ const statusPageTemplate = `<!DOCTYPE html>
         .container {
             max-width: 640px;
             margin: 0 auto;
+            border: 1px solid #e5e5e5;
+            padding: 24px;
         }
 
         .header {
-            margin-bottom: 32px;
+            margin-bottom: 24px;
             padding-bottom: 16px;
             border-bottom: 1px solid #e5e5e5;
         }
