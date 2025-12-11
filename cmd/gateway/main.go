@@ -92,6 +92,14 @@ func main() {
 	r.Get("/health", health.Handler())
 	r.Get("/ready", health.ReadyHandler())
 
+	// System status endpoint - checks health of all backend services
+	statusDeps := &health.StatusDependencies{
+		RollupURL:        cfg.Backend.RollupURL,
+		ContinuumRestURL: cfg.Backend.ContinuumRestURL,
+		DB:               repo,
+	}
+	r.Get("/status", health.StatusHandler(statusDeps))
+
 	// API v1 routes - clean, versioned endpoints
 	r.Route("/api/v1", func(r chi.Router) {
 		// Rollup API - 1000 req/min = ~16.67 req/sec

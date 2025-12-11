@@ -63,6 +63,14 @@ func NewRepository(db *DB) *Repository {
 	return &Repository{db: db}
 }
 
+// Health checks database connectivity (implements health.HealthChecker)
+func (r *Repository) Health(ctx context.Context) error {
+	if r.db == nil {
+		return fmt.Errorf("database not configured")
+	}
+	return r.db.Health(ctx)
+}
+
 // GetTransaction retrieves a transaction by hash
 // Supports both full hash and 8-character short hash (prefix search)
 func (r *Repository) GetTransaction(ctx context.Context, txHash string) (*Transaction, error) {
