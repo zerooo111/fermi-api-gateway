@@ -40,9 +40,9 @@ func TestStatusHandler_AllServicesHealthy(t *testing.T) {
 	mockDB := &MockHealthChecker{healthy: true, latency: 5 * time.Millisecond}
 
 	deps := &StatusDependencies{
-		RollupURL:        rollupServer.URL,
-		ContinuumRestURL: continuumServer.URL,
-		DB:               mockDB,
+		RollupHealthURL:    rollupServer.URL,
+		ContinuumHealthURL: continuumServer.URL,
+		DB:                 mockDB,
 	}
 
 	handler := StatusHandler(deps)
@@ -104,9 +104,9 @@ func TestStatusHandler_RollupUnhealthy(t *testing.T) {
 	mockDB := &MockHealthChecker{healthy: true, latency: 1 * time.Millisecond}
 
 	deps := &StatusDependencies{
-		RollupURL:        rollupServer.URL,
-		ContinuumRestURL: continuumServer.URL,
-		DB:               mockDB,
+		RollupHealthURL:    rollupServer.URL,
+		ContinuumHealthURL: continuumServer.URL,
+		DB:                 mockDB,
 	}
 
 	handler := StatusHandler(deps)
@@ -153,9 +153,9 @@ func TestStatusHandler_ContinuumUnhealthy(t *testing.T) {
 	mockDB := &MockHealthChecker{healthy: true, latency: 1 * time.Millisecond}
 
 	deps := &StatusDependencies{
-		RollupURL:        rollupServer.URL,
-		ContinuumRestURL: continuumServer.URL,
-		DB:               mockDB,
+		RollupHealthURL:    rollupServer.URL,
+		ContinuumHealthURL: continuumServer.URL,
+		DB:                 mockDB,
 	}
 
 	handler := StatusHandler(deps)
@@ -193,9 +193,9 @@ func TestStatusHandler_TimescaleDBUnhealthy(t *testing.T) {
 	mockDB := &MockHealthChecker{healthy: false}
 
 	deps := &StatusDependencies{
-		RollupURL:        rollupServer.URL,
-		ContinuumRestURL: continuumServer.URL,
-		DB:               mockDB,
+		RollupHealthURL:    rollupServer.URL,
+		ContinuumHealthURL: continuumServer.URL,
+		DB:                 mockDB,
 	}
 
 	handler := StatusHandler(deps)
@@ -231,9 +231,9 @@ func TestStatusHandler_DBNotConfigured(t *testing.T) {
 
 	// DB is nil (not configured)
 	deps := &StatusDependencies{
-		RollupURL:        rollupServer.URL,
-		ContinuumRestURL: continuumServer.URL,
-		DB:               nil,
+		RollupHealthURL:    rollupServer.URL,
+		ContinuumHealthURL: continuumServer.URL,
+		DB:                 nil,
 	}
 
 	handler := StatusHandler(deps)
@@ -264,9 +264,9 @@ func TestStatusHandler_DBNotConfigured(t *testing.T) {
 func TestStatusHandler_RollupUnreachable(t *testing.T) {
 	// Use invalid URL that won't connect
 	deps := &StatusDependencies{
-		RollupURL:        "http://localhost:99999",
-		ContinuumRestURL: "http://localhost:99998",
-		DB:               nil,
+		RollupHealthURL:    "http://localhost:99999",
+		ContinuumHealthURL: "http://localhost:99998",
+		DB:                 nil,
 	}
 
 	handler := StatusHandler(deps)
@@ -296,9 +296,9 @@ func TestStatusHandler_ResponseHeaders(t *testing.T) {
 	defer rollupServer.Close()
 
 	deps := &StatusDependencies{
-		RollupURL:        rollupServer.URL,
-		ContinuumRestURL: rollupServer.URL,
-		DB:               &MockHealthChecker{healthy: true},
+		RollupHealthURL:    rollupServer.URL,
+		ContinuumHealthURL: rollupServer.URL,
+		DB:                 &MockHealthChecker{healthy: true},
 	}
 
 	handler := StatusHandler(deps)
@@ -325,9 +325,9 @@ func TestStatusHandler_ResponseContainsTimestamp(t *testing.T) {
 	defer rollupServer.Close()
 
 	deps := &StatusDependencies{
-		RollupURL:        rollupServer.URL,
-		ContinuumRestURL: rollupServer.URL,
-		DB:               &MockHealthChecker{healthy: true},
+		RollupHealthURL:    rollupServer.URL,
+		ContinuumHealthURL: rollupServer.URL,
+		DB:                 &MockHealthChecker{healthy: true},
 	}
 
 	handler := StatusHandler(deps)

@@ -94,9 +94,9 @@ func main() {
 
 	// System status endpoint - checks health of all backend services
 	statusDeps := &health.StatusDependencies{
-		RollupURL:        cfg.Backend.RollupURL,
-		ContinuumRestURL: cfg.Backend.ContinuumRestURL,
-		DB:               repo,
+		RollupHealthURL:    "http://44.194.22.128:8080/status",
+		ContinuumHealthURL: "http://100.24.216.168:8080/api/v1/health",
+		DB:                 repo,
 	}
 	r.Get("/status", health.StatusHandler(statusDeps))
 

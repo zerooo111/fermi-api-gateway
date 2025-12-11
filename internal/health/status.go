@@ -3,7 +3,9 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -15,9 +17,9 @@ type HealthChecker interface {
 
 // StatusDependencies holds the dependencies needed for status checks
 type StatusDependencies struct {
-	RollupURL        string
-	ContinuumRestURL string
-	DB               HealthChecker
+	RollupHealthURL    string // Full URL to rollup health endpoint (e.g., http://host:port/status)
+	ContinuumHealthURL string // Full URL to continuum health endpoint (e.g., http://host:port/api/v1/health)
+	DB                 HealthChecker
 }
 
 // ServiceStatus represents the health status of a single service
@@ -34,11 +36,23 @@ type Services struct {
 	TimescaleDB ServiceStatus `json:"timescale_db"`
 }
 
+// GatewayStats holds runtime statistics for the gateway
+type GatewayStats struct {
+	Uptime     string  `json:"uptime"`
+	UptimeSec  int64   `json:"uptime_seconds"`
+	Goroutines int     `json:"goroutines"`
+	MemAllocMB float64 `json:"mem_alloc_mb"`
+	MemSysMB   float64 `json:"mem_sys_mb"`
+	NumGC      uint32  `json:"num_gc"`
+	GoVersion  string  `json:"go_version"`
+}
+
 // SystemStatus represents the overall system health status
 type SystemStatus struct {
-	Status    string    `json:"status"`
-	Timestamp time.Time `json:"timestamp"`
-	Services  Services  `json:"services"`
+	Status    string       `json:"status"`
+	Timestamp time.Time    `json:"timestamp"`
+	Gateway   GatewayStats `json:"gateway"`
+	Services  Services     `json:"services"`
 }
 
 // StatusHandler returns an HTTP handler for comprehensive system status checks
@@ -46,6 +60,7 @@ func StatusHandler(deps *StatusDependencies) http.HandlerFunc {
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
+	startTime := time.Now()
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -61,7 +76,7 @@ func StatusHandler(deps *StatusDependencies) http.HandlerFunc {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			status := checkHTTPService(ctx, client, deps.RollupURL+"/health")
+			status := checkHTTPService(ctx, client, deps.RollupHealthURL)
 			mu.Lock()
 			services.Rollup = status
 			if status.Status != "healthy" {
@@ -74,7 +89,7 @@ func StatusHandler(deps *StatusDependencies) http.HandlerFunc {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			status := checkHTTPService(ctx, client, deps.ContinuumRestURL+"/health")
+			status := checkHTTPService(ctx, client, deps.ContinuumHealthURL)
 			mu.Lock()
 			services.Continuum = status
 			if status.Status != "healthy" {
@@ -105,10 +120,24 @@ func StatusHandler(deps *StatusDependencies) http.HandlerFunc {
 			httpStatus = http.StatusServiceUnavailable
 		}
 
+		// Collect gateway stats
+		var memStats runtime.MemStats
+		runtime.ReadMemStats(&memStats)
+		uptime := time.Since(startTime)
+
 		resp := SystemStatus{
 			Status:    overallStatus,
 			Timestamp: time.Now(),
-			Services:  services,
+			Gateway: GatewayStats{
+				Uptime:     formatDuration(uptime),
+				UptimeSec:  int64(uptime.Seconds()),
+				Goroutines: runtime.NumGoroutine(),
+				MemAllocMB: float64(memStats.Alloc) / 1024 / 1024,
+				MemSysMB:   float64(memStats.Sys) / 1024 / 1024,
+				NumGC:      memStats.NumGC,
+				GoVersion:  runtime.Version(),
+			},
+			Services: services,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -183,4 +212,23 @@ func checkDatabase(ctx context.Context, db HealthChecker) ServiceStatus {
 		Status:    "healthy",
 		LatencyMs: latencyMs,
 	}
+}
+
+// formatDuration formats a duration into a human-readable string
+func formatDuration(d time.Duration) string {
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+	seconds := int(d.Seconds()) % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm %ds", days, hours, minutes, seconds)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm %ds", hours, minutes, seconds)
+	}
+	if minutes > 0 {
+		return fmt.Sprintf("%dm %ds", minutes, seconds)
+	}
+	return fmt.Sprintf("%ds", seconds)
 }
