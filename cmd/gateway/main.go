@@ -118,7 +118,7 @@ func main() {
 
 			// New database-backed endpoints
 			// GET /continuum/tick/recent?limit=N - proxy to Continuum REST API
-			r.Get("/tick/recent", continuumRestProxy.Handler().ServeHTTP)
+			r.Get("/tick/recent", continuumRestProxy.HandlerWithPath("/api/v1/ticks/recent"))
 			// GET /continuum/tick/{tickNumber} - returns tick with VDF proof
 			r.Get("/tick/{tickNumber}", continuumHandler.HandleGetTickByNumber())
 			// GET /continuum/txn/recent?limit=N - returns recent transactions

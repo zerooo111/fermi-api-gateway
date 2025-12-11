@@ -56,6 +56,13 @@ func (p *HTTPProxy) Handler() http.Handler {
 	})
 }
 
+// HandlerWithPath returns an http.HandlerFunc that proxies requests to a specific backend path
+func (p *HTTPProxy) HandlerWithPath(backendPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p.proxyRequestWithPath(w, r, backendPath)
+	}
+}
+
 // proxyRequest handles the actual proxying logic
 func (p *HTTPProxy) proxyRequest(w http.ResponseWriter, r *http.Request) {
 	// Build target URL
@@ -81,6 +88,26 @@ func (p *HTTPProxy) proxyRequest(w http.ResponseWriter, r *http.Request) {
 
 	targetURL.Path = basePath + requestPath
 	targetURL.RawQuery = r.URL.RawQuery
+
+	p.doProxy(w, r, targetURL)
+}
+
+// proxyRequestWithPath proxies the request to a specific backend path
+func (p *HTTPProxy) proxyRequestWithPath(w http.ResponseWriter, r *http.Request, backendPath string) {
+	targetURL, err := url.Parse(p.target)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"invalid backend URL: %v"}`, err), http.StatusInternalServerError)
+		return
+	}
+
+	targetURL.Path = backendPath
+	targetURL.RawQuery = r.URL.RawQuery
+
+	p.doProxy(w, r, targetURL)
+}
+
+// doProxy performs the actual HTTP proxy request
+func (p *HTTPProxy) doProxy(w http.ResponseWriter, r *http.Request, targetURL *url.URL) {
 
 	// Create new request to backend
 	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL.String(), r.Body)
