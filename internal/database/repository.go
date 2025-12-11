@@ -40,7 +40,6 @@ type Tick struct {
 	VDFProof             *VDFProof     `json:"vdf_proof,omitempty"`
 	TransactionCount     int           `json:"transaction_count"`
 	TransactionBatchHash string        `json:"transaction_batch_hash"`
-	PreviousOutput       string        `json:"previous_output,omitempty"`
 	IngestedAt           time.Time     `json:"ingested_at"`
 	Transactions         []Transaction `json:"transactions,omitempty"`
 }
@@ -170,13 +169,13 @@ func (r *Repository) GetRecentTransactions(ctx context.Context, limit int) ([]Tr
 }
 
 // GetTickByNumber retrieves a tick by its tick number, including VDF proof data
-// Actual database schema: ticks(tick_number, timestamp_us, vdf_input, vdf_output, vdf_proof, vdf_iterations, transaction_batch_hash, previous_output, tx_count, processed_at, version)
+// Actual database schema: ticks(tick_number, timestamp_us, vdf_input, vdf_output, vdf_proof, vdf_iterations, transaction_batch_hash, tx_count, processed_at)
 func (r *Repository) GetTickByNumber(ctx context.Context, tickNumber uint64) (*Tick, error) {
 	query := `
 		SELECT
 			tick_number, timestamp_us,
 			vdf_input, vdf_output, vdf_proof, vdf_iterations,
-			tx_count, transaction_batch_hash, previous_output,
+			tx_count, transaction_batch_hash,
 			processed_at
 		FROM ticks
 		WHERE tick_number = $1
@@ -184,7 +183,7 @@ func (r *Repository) GetTickByNumber(ctx context.Context, tickNumber uint64) (*T
 	`
 
 	var tick Tick
-	var vdfInput, vdfOutput, vdfProof, previousOutput sql.NullString
+	var vdfInput, vdfOutput, vdfProof sql.NullString
 	var vdfIterations sql.NullInt64
 
 	err := r.db.QueryRowContext(ctx, query, tickNumber).Scan(
@@ -196,7 +195,6 @@ func (r *Repository) GetTickByNumber(ctx context.Context, tickNumber uint64) (*T
 		&vdfIterations,
 		&tick.TransactionCount,
 		&tick.TransactionBatchHash,
-		&previousOutput,
 		&tick.IngestedAt, // processed_at -> IngestedAt
 	)
 
@@ -220,10 +218,6 @@ func (r *Repository) GetTickByNumber(ctx context.Context, tickNumber uint64) (*T
 		}
 	}
 
-	if previousOutput.Valid {
-		tick.PreviousOutput = previousOutput.String
-	}
-
 	// Fetch transactions for this tick
 	if tick.TransactionCount > 0 {
 		txns, err := r.GetTransactionsByTickNumber(ctx, tickNumber)
@@ -242,7 +236,7 @@ func (r *Repository) GetRecentTicks(ctx context.Context, limit int) ([]Tick, err
 		SELECT
 			tick_number, timestamp_us,
 			vdf_input, vdf_output, vdf_proof, vdf_iterations,
-			tx_count, transaction_batch_hash, previous_output,
+			tx_count, transaction_batch_hash,
 			processed_at
 		FROM ticks
 		ORDER BY tick_number DESC
@@ -258,7 +252,7 @@ func (r *Repository) GetRecentTicks(ctx context.Context, limit int) ([]Tick, err
 	var ticks []Tick
 	for rows.Next() {
 		var tick Tick
-		var vdfInput, vdfOutput, vdfProof, previousOutput sql.NullString
+		var vdfInput, vdfOutput, vdfProof sql.NullString
 		var vdfIterations sql.NullInt64
 
 		err := rows.Scan(
@@ -270,7 +264,6 @@ func (r *Repository) GetRecentTicks(ctx context.Context, limit int) ([]Tick, err
 			&vdfIterations,
 			&tick.TransactionCount,
 			&tick.TransactionBatchHash,
-			&previousOutput,
 			&tick.IngestedAt,
 		)
 		if err != nil {
@@ -288,10 +281,6 @@ func (r *Repository) GetRecentTicks(ctx context.Context, limit int) ([]Tick, err
 				Proof:      vdfProof.String,
 				Iterations: uint64(vdfIterations.Int64),
 			}
-		}
-
-		if previousOutput.Valid {
-			tick.PreviousOutput = previousOutput.String
 		}
 
 		ticks = append(ticks, tick)
