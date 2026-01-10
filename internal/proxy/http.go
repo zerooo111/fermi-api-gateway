@@ -159,8 +159,8 @@ func (p *HTTPProxy) doProxy(w http.ResponseWriter, r *http.Request, targetURL *u
 	}
 	defer resp.Body.Close()
 
-	// Copy response headers
-	copyHeaders(w.Header(), resp.Header)
+	// Copy response headers (excluding CORS headers - let our middleware handle those)
+	copyHeadersExcludingCORS(w.Header(), resp.Header)
 
 	// Copy status code
 	w.WriteHeader(resp.StatusCode)
@@ -180,6 +180,44 @@ func copyHeaders(dst, src http.Header) {
 			dst.Add(key, value)
 		}
 	}
+}
+
+// copyHeadersExcludingCORS copies HTTP headers excluding CORS headers
+// This prevents duplicate CORS headers when upstream also sends them
+func copyHeadersExcludingCORS(dst, src http.Header) {
+	for key, values := range src {
+		// Skip hop-by-hop headers
+		if isHopByHopHeader(key) {
+			continue
+		}
+		// Skip CORS headers - let our middleware handle these
+		if isCORSHeader(key) {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+}
+
+// isCORSHeader checks if a header is a CORS-related header
+func isCORSHeader(header string) bool {
+	corsHeaders := []string{
+		"Access-Control-Allow-Origin",
+		"Access-Control-Allow-Methods",
+		"Access-Control-Allow-Headers",
+		"Access-Control-Allow-Credentials",
+		"Access-Control-Expose-Headers",
+		"Access-Control-Max-Age",
+	}
+
+	header = strings.ToLower(header)
+	for _, h := range corsHeaders {
+		if strings.ToLower(h) == header {
+			return true
+		}
+	}
+	return false
 }
 
 // isHopByHopHeader checks if a header is hop-by-hop (shouldn't be forwarded)
