@@ -95,7 +95,7 @@ func main() {
 	// System status endpoint - checks health of all backend services
 	statusDeps := &health.StatusDependencies{
 		RollupHealthURL:    "http://44.194.22.128:8080/status",
-		ContinuumHealthURL: "http://100.24.216.168:8080/api/v1/health",
+		ContinuumHealthURL: cfg.Backend.ContinuumRestURL + "/health",
 		DB:                 repo,
 	}
 	r.Get("/status", health.StatusHandler(statusDeps))
@@ -116,32 +116,44 @@ func main() {
 			r.Handle("/*", rollupProxy.Handler())
 		})
 
-		// Continuum API - unified endpoint (frontend doesn't need to know about REST vs gRPC)
-		// Use higher rate limit (2000 req/min) since this combines both REST and gRPC traffic
+		// Continuum Explorer API - proxies to the new read-only Explorer API
+		// Use higher rate limit (2000 req/min) since this is a read-heavy API
 		continuumLimiter := ratelimit.NewIPRateLimiter(float64(cfg.RateLimit.ContinuumRestRPM)/60, cfg.RateLimit.ContinuumRestRPM)
 		r.Route("/continuum", func(r chi.Router) {
 			r.Use(ratelimit.Middleware(continuumLimiter))
 
-			// Initialize Continuum handler for database queries
-			continuumHandler := proxy.NewContinuumHandler(repo, logger)
+			// === Continuum Explorer API Endpoints ===
+			// See continuum-api-guide.md for full API documentation
 
-			// New database-backed endpoints
-			// GET /continuum/tick/recent?limit=N - proxy to Continuum REST API
+			// Health check - GET /health
+			r.Get("/health", continuumRestProxy.HandlerWithPath("/health"))
+
+			// Service info - GET /
+			r.Get("/info", continuumRestProxy.HandlerWithPath("/"))
+
+			// Statistics - GET /api/v1/stats
+			r.Get("/stats", continuumRestProxy.HandlerWithPath("/api/v1/stats"))
+
+			// Ticks endpoints
+			// GET /tick/recent?limit=N - returns recent ticks with transactions
 			r.Get("/tick/recent", continuumRestProxy.HandlerWithPath("/api/v1/ticks/recent"))
-			// GET /continuum/tick/{tickNumber} - returns tick with VDF proof
-			r.Get("/tick/{tickNumber}", continuumHandler.HandleGetTickByNumber())
-			// GET /continuum/txn/recent?limit=N - returns recent transactions
-			r.Get("/txn/recent", continuumHandler.HandleGetRecentTransactions())
-			// GET /continuum/txn/{txnId} - returns transaction by ID
-			r.Get("/txn/{txnId}", continuumHandler.HandleGetTransactionByID())
+			// GET /tick/{tickNumber} - returns tick details with VDF proof and transactions
+			r.Get("/tick/{tickNumber}", continuumRestProxy.HandlerWithPathTemplate("/api/v1/ticks/{tickNumber}", "tickNumber"))
 
-			// Transaction endpoints (new - with database support)
+			// Transactions endpoints
+			// GET /txn/recent?limit=N - returns recent transactions
+			r.Get("/txn/recent", continuumRestProxy.HandlerWithPath("/api/v1/transactions/recent"))
+			// GET /txn/{txnId} - returns transaction by hash
+			r.Get("/txn/{txnId}", continuumRestProxy.HandlerWithPathTemplate("/api/v1/transactions/{txnId}", "txnId"))
+
+			// === gRPC Write Endpoints (for submitting transactions) ===
+			// Transaction submission endpoints
 			r.Get("/tx/recent", continuumGrpcProxy.HandleGetRecentTransactions())
 			r.Handle("/tx/*", continuumGrpcProxy.HandleGetTransactionByHash())
 			r.Post("/tx", continuumGrpcProxy.HandleSubmitTransaction())
 			r.Post("/tx/batch", continuumGrpcProxy.HandleSubmitBatch())
 
-			// Legacy gRPC endpoints (keep for backward compatibility)
+			// Legacy gRPC endpoints (backward compatibility)
 			r.Post("/submit-transaction", continuumGrpcProxy.HandleSubmitTransaction())
 			r.Post("/submit-batch", continuumGrpcProxy.HandleSubmitBatch())
 			r.Get("/stream-ticks", continuumGrpcProxy.HandleStreamTicks())
@@ -154,7 +166,7 @@ func main() {
 			r.Get("/tick", continuumGrpcProxy.HandleGetTick())
 			r.Get("/chain-state", continuumGrpcProxy.HandleGetChainState())
 
-			// REST-only endpoints - proxy to REST backend (catch-all for any unmatched routes)
+			// Catch-all proxy to Explorer API for any unmatched routes
 			r.Handle("/*", continuumRestProxy.Handler())
 		})
 	})

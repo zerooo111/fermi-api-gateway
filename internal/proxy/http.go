@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // HTTPProxy handles HTTP reverse proxying to backend services
@@ -59,6 +61,20 @@ func (p *HTTPProxy) Handler() http.Handler {
 // HandlerWithPath returns an http.HandlerFunc that proxies requests to a specific backend path
 func (p *HTTPProxy) HandlerWithPath(backendPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		p.proxyRequestWithPath(w, r, backendPath)
+	}
+}
+
+// HandlerWithPathTemplate returns an http.HandlerFunc that proxies requests to a backend path
+// with Chi URL parameter substitution. Use {paramName} in the template.
+// Example: "/api/v1/ticks/{tickNumber}" will substitute the Chi URL param "tickNumber"
+func (p *HTTPProxy) HandlerWithPathTemplate(pathTemplate string, paramNames ...string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		backendPath := pathTemplate
+		for _, paramName := range paramNames {
+			value := chi.URLParam(r, paramName)
+			backendPath = strings.Replace(backendPath, "{"+paramName+"}", value, 1)
+		}
 		p.proxyRequestWithPath(w, r, backendPath)
 	}
 }
