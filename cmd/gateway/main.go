@@ -158,8 +158,8 @@ func main() {
 			r.Post("/submit-batch", continuumGrpcProxy.HandleSubmitBatch())
 			r.Get("/stream-ticks", continuumGrpcProxy.HandleStreamTicks())
 
-			// Unified status endpoint - merges REST /status + gRPC GetStatus
-			r.Get("/status", continuumGrpcProxy.HandleUnifiedStatus(cfg.Backend.ContinuumRestURL))
+			// Status endpoint - proxy to Explorer API health
+			r.Get("/status", continuumRestProxy.HandlerWithPath("/health"))
 
 			// Other gRPC endpoints
 			r.Get("/transaction", continuumGrpcProxy.HandleGetTransaction())
