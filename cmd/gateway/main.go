@@ -158,8 +158,10 @@ func main() {
 			r.Post("/submit-batch", continuumGrpcProxy.HandleSubmitBatch())
 			r.Get("/stream-ticks", continuumGrpcProxy.HandleStreamTicks())
 
-			// Status endpoint - proxy to Explorer API health
-			r.Get("/status", continuumRestProxy.HandlerWithPath("/health"))
+			// Unified status endpoint - merges Continuum REST /status + gRPC GetStatus
+			// Uses old Continuum API (not Explorer API) for status data
+			continuumStatusURL := "http://100.24.216.168:8080/api/v1"
+			r.Get("/status", continuumGrpcProxy.HandleUnifiedStatus(continuumStatusURL))
 
 			// Other gRPC endpoints
 			r.Get("/transaction", continuumGrpcProxy.HandleGetTransaction())
