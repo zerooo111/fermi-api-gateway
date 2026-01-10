@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -37,7 +38,10 @@ func NewHTTPProxy(targetURL string, timeout time.Duration) *HTTPProxy {
 				KeepAlive: 30 * time.Second,
 			}).DialContext,
 
-			// TLS and other settings
+			// TLS settings - skip verification for internal services with self-signed certs
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
 			TLSHandshakeTimeout:   10 * time.Second,
 			ResponseHeaderTimeout: timeout,
 			ExpectContinueTimeout: 1 * time.Second,

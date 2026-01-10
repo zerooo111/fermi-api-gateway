@@ -62,7 +62,7 @@ func Load() *Config {
 		Backend: BackendConfig{
 			RollupURL:        getEnv("ROLLUP_URL", "http://localhost:3000"),
 			ContinuumGrpcURL: getEnv("CONTINUUM_GRPC_URL", "localhost:9090"),
-			ContinuumRestURL: getEnv("CONTINUUM_REST_URL", "http://18.220.137.190"),
+			ContinuumRestURL: getEnv("CONTINUUM_REST_URL", "https://18.220.137.190"),
 		},
 		Database: DatabaseConfig{
 			Host:     getEnv("DB_HOST", "localhost"),
