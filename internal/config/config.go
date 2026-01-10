@@ -27,9 +27,10 @@ type CORSConfig struct {
 
 // BackendConfig holds backend service URLs
 type BackendConfig struct {
-	RollupURL        string
-	ContinuumGrpcURL string
-	ContinuumRestURL string
+	RollupURL          string
+	ContinuumGrpcURL   string
+	ContinuumRestURL   string // Explorer API for ticks/transactions
+	ContinuumStatusURL string // Original Continuum API for status endpoint
 }
 
 // DatabaseConfig holds database connection configuration
@@ -60,9 +61,10 @@ func Load() *Config {
 			AllowedOrigins: getEnvSlice("ALLOWED_ORIGINS", []string{"http://localhost:3000"}),
 		},
 		Backend: BackendConfig{
-			RollupURL:        getEnv("ROLLUP_URL", "http://localhost:3000"),
-			ContinuumGrpcURL: getEnv("CONTINUUM_GRPC_URL", "localhost:9090"),
-			ContinuumRestURL: getEnv("CONTINUUM_REST_URL", "https://18.220.137.190"),
+			RollupURL:          getEnv("ROLLUP_URL", "http://localhost:3000"),
+			ContinuumGrpcURL:   getEnv("CONTINUUM_GRPC_URL", "localhost:9090"),
+			ContinuumRestURL:   getEnv("CONTINUUM_REST_URL", "https://18.220.137.190"),
+			ContinuumStatusURL: getEnv("CONTINUUM_STATUS_URL", "http://localhost:8080/api/v1"),
 		},
 		Database: DatabaseConfig{
 			Host:     getEnv("DB_HOST", "localhost"),
