@@ -19,6 +19,9 @@ install: ## Install Go dependencies
 build: ## Build the gateway binary
 	go build -o bin/gateway ./cmd/gateway
 
+build-price-sync: ## Build the price-sync binary
+	go build -o bin/price-sync ./cmd/price-sync
+
 run: build ## Build and run the gateway
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && ./bin/gateway
 
@@ -75,3 +78,8 @@ test-grpc: ## Test gRPC stream connection (diagnostic tool)
 	@go build -o bin/test-grpc-stream ./cmd/test-grpc-stream
 	@echo "Running test (use Ctrl+C to stop)..."
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && ./bin/test-grpc-stream -server "$${CONTINUUM_GRPC_URL:-100.24.216.168:9090}"
+
+price-sync: ## Run price sync service (from .env)
+	@echo "Building and starting price sync service..."
+	@go build -o bin/price-sync ./cmd/price-sync
+	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && ./bin/price-sync

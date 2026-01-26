@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
 // Config holds all application configuration
@@ -12,6 +13,7 @@ type Config struct {
 	Backend   BackendConfig
 	Database  DatabaseConfig
 	RateLimit RateLimitConfig
+	PriceSync PriceSyncConfig
 }
 
 // ServerConfig holds HTTP server configuration
@@ -49,6 +51,15 @@ type RateLimitConfig struct {
 	ContinuumRestRPM int
 }
 
+// PriceSyncConfig holds price sync service configuration
+type PriceSyncConfig struct {
+	Enabled           bool
+	MarketEndpoint    string
+	PollInterval      time.Duration
+	HeartbeatInterval time.Duration
+	HTTPTimeout       time.Duration
+}
+
 // Load reads configuration from environment variables
 func Load() *Config {
 	return &Config{
@@ -76,6 +87,13 @@ func Load() *Config {
 			RollupRPM:        getEnvInt("RATE_LIMIT_ROLLUP", 1000),
 			ContinuumGrpcRPM: getEnvInt("RATE_LIMIT_CONTINUUM_GRPC", 500),
 			ContinuumRestRPM: getEnvInt("RATE_LIMIT_CONTINUUM_REST", 2000),
+		},
+		PriceSync: PriceSyncConfig{
+			Enabled:           getEnv("PRICE_SYNC_ENABLED", "false") == "true",
+			MarketEndpoint:    getEnv("MARKET_ENDPOINT_FOR_PRICE_SYNC", ""),
+			PollInterval:      getEnvDuration("PRICE_SYNC_POLL_INTERVAL", 1*time.Second),
+			HeartbeatInterval: getEnvDuration("PRICE_SYNC_HEARTBEAT_INTERVAL", 30*time.Second),
+			HTTPTimeout:       getEnvDuration("PRICE_SYNC_HTTP_TIMEOUT", 3*time.Second),
 		},
 	}
 }
@@ -117,6 +135,15 @@ func getEnvSlice(key string, defaultValue []string) []string {
 			result = append(result, current)
 		}
 		return result
+	}
+	return defaultValue
+}
+
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if duration, err := time.ParseDuration(value); err == nil {
+			return duration
+		}
 	}
 	return defaultValue
 }

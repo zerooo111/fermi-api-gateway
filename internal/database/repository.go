@@ -461,3 +461,20 @@ func (r *Repository) GetMarketCandles(ctx context.Context, marketID string, time
 
 	return candles, nil
 }
+
+// InsertMarketPrice inserts a market price into the database
+// Uses ON CONFLICT DO NOTHING to handle duplicate timestamps
+func (r *Repository) InsertMarketPrice(ctx context.Context, marketID string, ts time.Time, price float64) error {
+	query := `
+		INSERT INTO market_prices (market_id, ts, price)
+		VALUES ($1, $2, $3)
+		ON CONFLICT DO NOTHING
+	`
+
+	_, err := r.db.ExecContext(ctx, query, marketID, ts, price)
+	if err != nil {
+		return fmt.Errorf("failed to insert market price: %w", err)
+	}
+
+	return nil
+}
