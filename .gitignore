@@ -5,11 +5,16 @@
 *.so
 *.dylib
 
+# Build output directory
+bin/
+
 # Test binary, built with `go test -c`
 *.test
 
 # Output of the go coverage tool
 *.out
+coverage.html
+coverage.txt
 
 # Dependency directories
 vendor/
