@@ -1,0 +1,58 @@
+# Git files
+.git
+.gitignore
+
+# Build artifacts
+bin/
+*.exe
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# Environment files (use Cloud Run env vars instead)
+.env
+.env.*
+
+# Documentation
+*.md
+CLAUDE.md
+README.md
+TODO.md
+RUNNING.md
+continuum-api-guide.md
+CONTINUUM_EXPLORER_MIGRATION_GUIDE.md
+
+# Test files
+*_test.go
+test-*.sh
+test-*.html
+final-test.sh
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Scripts (not needed in container)
+scripts/
+*.sh
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Schema files (use migrations in production)
+schema/
+
+# Makefile
+Makefile
