@@ -1,18 +1,28 @@
 #!/bin/bash
 # Deploy Fermi Gateway + Price-Sync to GCE (Ubuntu, no Docker)
+# Usage: ./deploy-gce-simple.sh [region] [zone] [instance-name] [machine-type]
+# Example: ./deploy-gce-simple.sh europe-west3 europe-west3-a fermi-gateway-eu e2-medium
 
 set -e
 
+REGION="${1:-us-central1}"
+ZONE="${2:-${REGION}-a}"
+INSTANCE_NAME="${3:-fermi-gateway}"
+MACHINE_TYPE="${4:-e2-medium}"
 PROJECT_ID="${GCP_PROJECT_ID:-fermi-testnet}"
-ZONE="${GCP_ZONE:-us-central1-a}"
-INSTANCE_NAME="fermi-gateway"
-MACHINE_TYPE="e2-medium"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
 echo -e "${GREEN}=== Deploying Fermi Services to GCE ===${NC}"
+echo -e "${YELLOW}Configuration:${NC}"
+echo -e "  Project: ${PROJECT_ID}"
+echo -e "  Region: ${REGION}"
+echo -e "  Zone: ${ZONE}"
+echo -e "  Instance: ${INSTANCE_NAME}"
+echo -e "  Machine: ${MACHINE_TYPE}"
+echo
 
 # Check if binaries exist
 if [ ! -f bin/gateway ] || [ ! -f bin/price-sync ]; then

@@ -1,13 +1,15 @@
 #!/bin/bash
 # Setup Nginx with SSL for Fermi Gateway
+# Usage: ./setup-nginx-ssl.sh <domain> [email] [zone] [instance-name]
+# Example: ./setup-nginx-ssl.sh testnet.fermi.trade admin@fermilabs.xyz europe-west3-a fermi-gateway-eu
 
 set -e
 
-PROJECT_ID="${GCP_PROJECT_ID:-fermi-testnet}"
-ZONE="${GCP_ZONE:-us-central1-a}"
-INSTANCE_NAME="fermi-gateway"
 DOMAIN="${1}"
 EMAIL="${2:-admin@fermilabs.xyz}"
+ZONE="${3:-${GCP_ZONE:-us-central1-a}}"
+INSTANCE_NAME="${4:-fermi-gateway}"
+PROJECT_ID="${GCP_PROJECT_ID:-fermi-testnet}"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
