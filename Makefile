@@ -1,4 +1,4 @@
-.PHONY: help install build run dev clean test gateway ingester ingester-debug test-grpc
+.PHONY: help install build run dev clean test gateway build-price-sync price-sync
 
 # Load .env file if it exists (for shell environment)
 ifneq (,$(wildcard .env))
@@ -62,22 +62,6 @@ gateway: ## Run API gateway server (from .env)
 	@echo "Building and starting API gateway..."
 	@go build -o bin/gateway ./cmd/gateway
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && ./bin/gateway
-
-ingester: ## Run tick ingester with TimescaleDB (from .env)
-	@echo "Building and starting tick ingester (TimescaleDB mode)..."
-	@go build -o bin/tick-ingester ./cmd/tick-ingester
-	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && ./bin/tick-ingester
-
-ingester-debug: ## Run tick ingester with console output (no database)
-	@echo "Building and starting tick ingester (debug mode - console output)..."
-	@go build -o bin/tick-ingester ./cmd/tick-ingester
-	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && OUTPUT_MODE=console OUTPUT_FORMAT=table ./bin/tick-ingester
-
-test-grpc: ## Test gRPC stream connection (diagnostic tool)
-	@echo "Building gRPC stream test tool..."
-	@go build -o bin/test-grpc-stream ./cmd/test-grpc-stream
-	@echo "Running test (use Ctrl+C to stop)..."
-	@if [ -f .env ]; then set -a; . ./.env; set +a; fi && ./bin/test-grpc-stream -server "$${CONTINUUM_GRPC_URL:-100.24.216.168:9090}"
 
 price-sync: ## Run price sync service (from .env)
 	@echo "Building and starting price sync service..."
