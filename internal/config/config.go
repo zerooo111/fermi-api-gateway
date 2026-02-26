@@ -29,9 +29,10 @@ type CORSConfig struct {
 
 // BackendConfig holds backend service URLs
 type BackendConfig struct {
-	RollupURL        string
-	ContinuumGrpcURL string
-	ContinuumRestURL string
+	RollupURL            string
+	ContinuumGrpcURL     string
+	ContinuumExplorerURL string
+	ContinuumStatusURL   string
 }
 
 // DatabaseConfig holds database connection configuration
@@ -73,7 +74,8 @@ func Load() *Config {
 		Backend: BackendConfig{
 			RollupURL:        getEnv("ROLLUP_URL", "http://localhost:3000"),
 			ContinuumGrpcURL: getEnv("CONTINUUM_GRPC_URL", "localhost:9090"),
-			ContinuumRestURL: getEnv("CONTINUUM_REST_URL", "https://18.220.137.190"),
+			ContinuumExplorerURL: getEnv("CONTINUUM_EXPLORER_URL", "http://10.156.0.8:3000"),
+			ContinuumStatusURL:   getEnv("CONTINUUM_STATUS_URL", "http://34.116.238.207:8080/api/v1"),
 		},
 		Database: DatabaseConfig{
 			Host:     getEnv("DB_HOST", "localhost"),

@@ -67,9 +67,9 @@ func main() {
 
 	// Initialize proxies
 	rollupProxy := proxy.NewHTTPProxy(cfg.Backend.RollupURL, 15*time.Second)
-	continuumRestProxy := proxy.NewHTTPProxy(cfg.Backend.ContinuumRestURL, 15*time.Second)
+	continuumExplorerProxy := proxy.NewHTTPProxy(cfg.Backend.ContinuumExplorerURL, 15*time.Second)
 
-	continuumGrpcProxy, err := proxy.NewGRPCProxy(cfg.Backend.ContinuumGrpcURL, repo, cfg.Backend.ContinuumRestURL, logger)
+	continuumGrpcProxy, err := proxy.NewGRPCProxy(cfg.Backend.ContinuumGrpcURL, repo, cfg.Backend.ContinuumExplorerURL, logger)
 	if err != nil {
 		logger.Fatal("Failed to initialize Continuum gRPC proxy", zap.Error(err))
 	}
@@ -95,7 +95,7 @@ func main() {
 	// System status endpoint - checks health of all backend services
 	statusDeps := &health.StatusDependencies{
 		RollupHealthURL:    "http://44.194.22.128:8080/status",
-		ContinuumHealthURL: cfg.Backend.ContinuumRestURL + "/health",
+		ContinuumHealthURL: cfg.Backend.ContinuumExplorerURL + "/health",
 		DB:                 repo,
 	}
 	r.Get("/status", health.StatusHandler(statusDeps))
@@ -126,25 +126,25 @@ func main() {
 			// See continuum-api-guide.md for full API documentation
 
 			// Health check - GET /health
-			r.Get("/health", continuumRestProxy.HandlerWithPath("/health"))
+			r.Get("/health", continuumExplorerProxy.HandlerWithPath("/health"))
 
 			// Service info - GET /
-			r.Get("/info", continuumRestProxy.HandlerWithPath("/"))
+			r.Get("/info", continuumExplorerProxy.HandlerWithPath("/"))
 
 			// Statistics - GET /api/v1/stats
-			r.Get("/stats", continuumRestProxy.HandlerWithPath("/api/v1/stats"))
+			r.Get("/stats", continuumExplorerProxy.HandlerWithPath("/api/v1/stats"))
 
 			// Ticks endpoints
 			// GET /tick/recent?limit=N - returns recent ticks with transactions
-			r.Get("/tick/recent", continuumRestProxy.HandlerWithPath("/api/v1/ticks/recent"))
+			r.Get("/tick/recent", continuumExplorerProxy.HandlerWithPath("/api/v1/ticks/recent"))
 			// GET /tick/{tickNumber} - returns tick details with VDF proof and transactions
-			r.Get("/tick/{tickNumber}", continuumRestProxy.HandlerWithPathTemplate("/api/v1/ticks/{tickNumber}", "tickNumber"))
+			r.Get("/tick/{tickNumber}", continuumExplorerProxy.HandlerWithPathTemplate("/api/v1/ticks/{tickNumber}", "tickNumber"))
 
 			// Transactions endpoints
 			// GET /txn/recent?limit=N - returns recent transactions
-			r.Get("/txn/recent", continuumRestProxy.HandlerWithPath("/api/v1/transactions/recent"))
+			r.Get("/txn/recent", continuumExplorerProxy.HandlerWithPath("/api/v1/transactions/recent"))
 			// GET /txn/{txnId} - returns transaction by hash
-			r.Get("/txn/{txnId}", continuumRestProxy.HandlerWithPathTemplate("/api/v1/transactions/{txnId}", "txnId"))
+			r.Get("/txn/{txnId}", continuumExplorerProxy.HandlerWithPathTemplate("/api/v1/transactions/{txnId}", "txnId"))
 
 			// === gRPC Write Endpoints (for submitting transactions) ===
 			// Transaction submission endpoints
@@ -160,7 +160,7 @@ func main() {
 
 			// Unified status endpoint - merges Continuum REST /status + gRPC GetStatus
 			// Uses old Continuum API (not Explorer API) for status data
-			continuumStatusURL := "http://100.24.216.168:8080/api/v1"
+			continuumStatusURL := cfg.Backend.ContinuumStatusURL
 			r.Get("/status", continuumGrpcProxy.HandleUnifiedStatus(continuumStatusURL))
 
 			// Other gRPC endpoints
@@ -169,7 +169,7 @@ func main() {
 			r.Get("/chain-state", continuumGrpcProxy.HandleGetChainState())
 
 			// Catch-all proxy to Explorer API for any unmatched routes
-			r.Handle("/*", continuumRestProxy.Handler())
+			r.Handle("/*", continuumExplorerProxy.Handler())
 		})
 	})
 
