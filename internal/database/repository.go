@@ -404,22 +404,19 @@ func (r *Repository) GetMarketCandles(ctx context.Context, marketID string, time
 		return nil, fmt.Errorf("invalid timeframe: %s", timeframe)
 	}
 
-	// Optimized single-pass query using window functions
-	// Previous query used 3 CTEs with DISTINCT ON which caused multiple table scans
+	// Optimized query using TimescaleDB first()/last() aggregate functions
+	// These are single-pass O(n) — unlike array_agg which builds full sorted arrays
+	// just to extract element [1], causing major slowdowns on large time ranges.
 	//
-	// Performance optimizations:
-	// 1. Single pass over data with window functions (FIRST_VALUE/LAST_VALUE)
-	// 2. All aggregations (open, high, low, close) computed in one GROUP BY
-	// 3. Uses covering index for index-only scans
-	//
-	// Expected performance: <500ms for 30-day 1h query (vs 6-10s before)
+	// Uses DESC + LIMIT to keep the most recent N candles when limit is hit,
+	// then reverses in Go to return chronological order (oldest to newest).
 	query := `
 		SELECT
 			time_bucket($1::interval, ts) AS bucket,
-			(array_agg(price ORDER BY ts ASC))[1] AS open_price,
+			first(price, ts) AS open_price,
 			MAX(price) AS high_price,
 			MIN(price) AS low_price,
-			(array_agg(price ORDER BY ts DESC))[1] AS close_price
+			last(price, ts) AS close_price
 		FROM market_prices
 		WHERE market_id = $2::uuid AND ts >= $3 AND ts <= $4
 		GROUP BY bucket
@@ -454,7 +451,7 @@ func (r *Repository) GetMarketCandles(ctx context.Context, marketID string, time
 	}
 
 	// Reverse to return chronological order (oldest to newest)
-	// Query returns newest first (DESC), but API should return oldest first (ASC)
+	// Query returns newest first (DESC) so LIMIT keeps the most recent candles
 	for i, j := 0, len(candles)-1; i < j; i, j = i+1, j-1 {
 		candles[i], candles[j] = candles[j], candles[i]
 	}
